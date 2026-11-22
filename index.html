@@ -1475,7 +1475,7 @@ async function abrirCamera() {
       <span class="cam-legenda">Aponte o quadro para a barra preta com o nome da carta</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="cam-slots" id="cam-slots"></div>
-    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 6)</span></p>
+    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 7)</span></p>
     <label class="cam-foto secundario" id="cam-foto">📷 Ou tirar uma foto da mão<input type="file" accept="image/*" capture="environment" id="cam-arquivo" hidden></label>
     <div class="cam-acoes"><button id="cam-recomecar">Recomeçar</button><button class="principal" id="cam-usar" disabled>Usar estas cartas</button></div>`;
   document.body.append(el);
@@ -1769,12 +1769,28 @@ function costurar(seq, f) {   // junta a leitura nova (f) no fim do que já foi 
     const ok = conf >= 2 && iguais >= conf - (conf >= 5 ? 1 : 0);
     if (ok && (!melhor || k > melhor.k)) melhor = { o, k };
   }
-  if (!melhor) return null;   // não achou onde encaixar (desceu rápido demais?)
+  if (!melhor) {
+    // a tela inteira já foi lida antes (você voltou a lista para cima)? então não muda nada
+    const conf = f.filter((x) => x !== null).length;
+    for (let o = 0; o + f.length <= seq.length; o++) {
+      let iguais = 0; for (let i = 0; i < f.length; i++) if (f[i] !== null && seq[o + i] === f[i]) iguais++;
+      if (conf >= 3 && iguais === conf) return seq;
+    }
+    return null;   // não achou onde encaixar (desceu rápido demais?)
+  }
   return seq.slice(0, melhor.o + melhor.k).concat(corte(f.slice(melhor.k)));
 }
+// o que já foi lido fica guardado: dá para fechar, descansar e continuar depois
+const LC_CHAVE = "fmh-leitura-v1";
+function guardarLeitura() { try { localStorage.setItem(LC_CHAVE, JSON.stringify({ destino: LC.destino, seq: LC.seq })); } catch (e) {} }
+function leituraGuardada(destino) {
+  try { const g = JSON.parse(localStorage.getItem(LC_CHAVE) || "null"); return g && g.destino === destino && Array.isArray(g.seq) ? g.seq.filter((n) => CARTAS.has(n)) : []; } catch (e) { return []; }
+}
+function apagarLeitura() { try { localStorage.removeItem(LC_CHAVE); } catch (e) {} }
 async function abrirLeitorLista(destino) {
   if ($("#cam")) return;
-  LC.seq = []; LC.ultimo = null; LC.destino = destino;
+  LC.seq = leituraGuardada(destino); LC.ultimo = null; LC.destino = destino;
+  const continuando = LC.seq.length > 0;
   const el = document.createElement("div");
   el.id = "cam"; el.className = "cam";
   el.innerHTML = `
@@ -1784,7 +1800,7 @@ async function abrirLeitorLista(destino) {
       <span class="cam-legenda">Enquadre a coluna dos NOMES das cartas</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="bloco"><span class="rot">Lidas até agora: <span id="lc-n">0</span></span><div id="lc-ultimas" class="suave">—</div></div>
-    <p class="cam-dica">No jogo, abra a lista de cartas e vá descendo <b>devagar</b> (umas 3 ou 4 linhas por vez), do começo até o fim. O app junta tudo e não conta a mesma linha duas vezes.</p>
+    <p class="cam-dica">Comece do topo da lista. Segure o celular parado até ele <b>vibrar</b>; aí desça umas <b>5 linhas</b> no jogo e espere vibrar de novo. Se pular demais, é só voltar um pouco para cima. Pode fechar e continuar depois: o que já foi lido fica guardado. <span style="opacity:.6">(versão 7)</span></p>
     <div class="cam-acoes"><button id="lc-recomecar">Recomeçar</button><button class="principal" id="lc-salvar" disabled>${destino === "bau" ? "Salvar no baú" : "Salvar como meu deck"}</button></div>`;
   document.body.append(el);
   document.body.classList.add("sem-rolagem");
@@ -1796,7 +1812,8 @@ async function abrirLeitorLista(destino) {
     const v = $("#cam-v"); v.srcObject = CAM.stream; await v.play().catch(() => {});
     camStatus("Preparando o leitor… (só demora na primeira vez)");
     await leitor;
-    camStatus("Aponte para a coluna dos nomes e comece do topo da lista.");
+    desenharLidas();
+    camStatus(continuando ? `Continuando de onde parou (${LC.seq.length} lidas). Volte a lista até a última carta lida, que aparece abaixo.` : "Aponte para a coluna dos nomes e comece do topo da lista.");
     cicloLista();
   } catch (e) {
     camStatus("A câmera ao vivo não abriu aqui. Abra o app pelo ícone do site (fm-helper) para usar a câmera.", "erro");
@@ -1850,7 +1867,7 @@ async function lerLinhasLista(cv) {
 }
 function desenharLidas() {
   $("#lc-n").textContent = LC.seq.length;
-  $("#lc-ultimas").innerHTML = LC.seq.length ? LC.seq.slice(-6).map((n) => esc(CARTAS.get(n).nome)).join("<br>") : "—";
+  $("#lc-ultimas").innerHTML = LC.seq.length ? "Últimas lidas (a de baixo é a mais recente):<br>" + LC.seq.slice(-4).map((n, i, a) => i === a.length - 1 ? `<b style="color:var(--texto)">${esc(CARTAS.get(n).nome)}</b>` : esc(CARTAS.get(n).nome)).join("<br>") : "—";
   $("#lc-salvar").disabled = !LC.seq.length;
 }
 async function cicloLista() {
@@ -1869,8 +1886,14 @@ async function cicloLista() {
       const chave = f.join(",");
       if (f.filter(Boolean).length >= 3 && chave === LC.ultimo) {   // mesma leitura 2 vezes seguidas: confiável
         const nova = costurar(LC.seq, f);
-        if (nova === null) camStatus("Perdi o fio: volte um pouco a lista para cima (até aparecer a última carta lida).", "erro");
-        else { if (nova.length > LC.seq.length) { try { navigator.vibrate?.(30); } catch (e) {} } LC.seq = nova; camStatus(`Lendo… ${LC.seq.length} carta(s). Continue descendo devagar.`, "ok"); desenharLidas(); }
+        if (nova === null) camStatus(`Perdi o fio: volte a lista para cima até aparecer "${CARTAS.get(LC.seq[LC.seq.length - 1]).nome}" (a última lida).`, "erro");
+        else if (nova === LC.seq) camStatus(`Essa parte já foi lida. Desça até depois de "${CARTAS.get(LC.seq[LC.seq.length - 1]).nome}".`);
+        else {
+          const novas = nova.length - LC.seq.length;
+          if (novas > 0) { try { navigator.vibrate?.(60); } catch (e) {} }
+          LC.seq = nova; guardarLeitura(); desenharLidas();
+          camStatus(novas > 0 ? `✔ +${novas}. Total: ${LC.seq.length} carta(s). Pode descer mais umas 5 linhas.` : `Total: ${LC.seq.length} carta(s). Pode descer mais umas 5 linhas.`, "ok");
+        }
       }
       LC.ultimo = chave;
     } catch (e) {}
@@ -1889,6 +1912,7 @@ function salvarLidas() {
     for (const [n, q] of Object.entries(colecao.deck)) if ((colecao.bau[n] || 0) < q) colecao.bau[n] = q;
   }
   salvarCol();
+  apagarLeitura();
   fecharCamera();
   desenharColecao();
   avisar(`${LC.seq.length} carta(s) salvas ${LC.destino === "deck" ? "no seu deck" : "no baú"}.`);
@@ -1897,7 +1921,7 @@ function salvarLidas() {
 document.addEventListener("click", (e) => {
   const t = e.target.closest("button"); if (!t) return;
   if (t.id === "lc-fechar") fecharCamera();
-  else if (t.id === "lc-recomecar") { LC.seq = []; LC.ultimo = null; desenharLidas(); camStatus("Recomeçando: volte ao topo da lista."); }
+  else if (t.id === "lc-recomecar") { LC.seq = []; LC.ultimo = null; apagarLeitura(); desenharLidas(); camStatus("Recomeçando: volte ao topo da lista."); }
   else if (t.id === "lc-salvar") salvarLidas();
   if (!t.closest("#v-colecao")) return;
   if (t.dataset.colSub) { col.sub = t.dataset.colSub; desenharColecao(); }

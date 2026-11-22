@@ -213,6 +213,7 @@ body.sem-rolagem { overflow: hidden; }
 .cam-status.ok { color: var(--verde); }
 .cam-status.erro { color: var(--laranja); }
 .cam-dica { margin: 0; font-size: 12.5px; color: var(--suave); }
+.cam-foto.secundario { background: var(--superficie-2); color: var(--texto); border: 1px solid var(--borda); font-weight: 600; padding: 11px; }
 .cam-foto { display: block; text-align: center; padding: 14px; border-radius: 12px; background: var(--ouro); color: #1a1306; font-weight: 700; cursor: pointer; }
 .cam-achadas { display: flex; flex-direction: column; gap: 6px; }
 .cam-vazia { color: var(--apagado); font-size: 13px; }
@@ -1157,7 +1158,7 @@ function desenharSlots() {
     const st = situacao(s), n = st === "fixa" ? s.fixa : (st === "certa" || st === "duvida") ? s.top[0][1] : null;
     const rot = { fixa: s.pelaBarra ? "✔ nome" : "✔", certa: "✔", duvida: "?", vazio: "vazio", lendo: "…" }[st];
     return `<button class="cam-slot ${st}" data-cam-slot="${k}">${n ? mini(n, "m54") : `<span class="mini sem m54">${k + 1}</span>`}
-      <span class="nm">${n ? esc(CARTAS.get(n).nome) : st === "vazio" ? "vazio" : "lendo…"}</span><span class="selo">${rot}</span></button>`;
+      <span class="nm">${n ? esc(CARTAS.get(n).nome) : st === "vazio" ? "vazio" : "—"}</span><span class="selo">${rot}</span></button>`;
   }).join("");
   const prontas = CAM.slots.map(cartaDoSlot).filter(Boolean).length, duvidas = CAM.slots.filter((s) => situacao(s) === "duvida").length;
   const b = $("#cam-usar");
@@ -1394,23 +1395,52 @@ function slotDoCursor(fonte, m) {
 async function ciclo() {
   if (!CAM.aberta || CAM.foto) return;
   const m = areaDaMira();
-  if (m) {
-    if (!CAM.ocupadoNome) {
-      CAM.ocupadoNome = true;
-      lerBarra(m).catch(() => {}).finally(() => { CAM.ocupadoNome = false; });
-    }
-    if (!CAM.ocupadoArte && Date.now() - CAM.ultimoScan > 1200) {
-      CAM.ocupadoArte = true;
-      escanearArtes(areaDaMira() || m).catch(() => {}).finally(() => {
-        CAM.ocupadoArte = false; CAM.ultimoScan = Date.now();
-        const st = CAM.slots.map(situacao);
-        if (!CAM.encaixe) return;
-        if (st.every((x) => x === "fixa" || x === "certa" || x === "vazio")) camStatus("✔ Mão reconhecida! Confira e toque em “Usar”.", "ok");
-        else if (st.includes("duvida")) camStatus("Os espaços com “?” ficaram em dúvida: passe o cursor do jogo neles (o nome confirma) ou toque para escolher.");
-      });
-    }
+  if (m && !CAM.ocupadoNome) {
+    CAM.ocupadoNome = true;
+    lerNomeAoVivo(m).catch(() => {}).finally(() => { CAM.ocupadoNome = false; });
   }
-  setTimeout(ciclo, 250);
+  setTimeout(ciclo, 150);
+}
+
+// Ao vivo: lê o nome na barra preta. Cada carta nova (lida 2 vezes seguidas) vai para o próximo espaço.
+async function lerNomeAoVivo(m) {
+  const canvas = prepararRecorte(m.fonte, m.x, m.y, m.w, m.h);
+  const texto = await lerTexto(canvas, "6");
+  let melhor = null;
+  for (const linha of texto.split(/\n+/)) { const a = acharCarta(linha); if (a && (!melhor || a.d < melhor.d)) melhor = a; }
+  if (!melhor) { CAM.candidato = null; CAM.contagem = 0; return; }
+  if (melhor.c.n === CAM.candidato) CAM.contagem++; else { CAM.candidato = melhor.c.n; CAM.contagem = 1; }
+  if (CAM.contagem === 2) adicionarPeloNome(melhor.c.n);
+}
+function adicionarPeloNome(n) {
+  if (n === CAM.ultimoAdd) return;   // ainda é a mesma carta embaixo do cursor
+  const nome = CARTAS.get(n).nome, livre = CAM.slots.findIndex((s) => s.fixa === undefined);
+  const ja = CAM.slots.findIndex((s) => s.fixa === n);
+  if (ja >= 0 && !CAM.repetir) {   // voltou o cursor numa carta já lida: não duplica
+    CAM.ultimoAdd = n;
+    return camStatus(`${nome} já está no espaço ${ja + 1}. Se você tem outra igual, toque nela e use “Tenho outra igual”.`);
+  }
+  CAM.repetir = false;
+  if (livre < 0) return camStatus("Já tenho as 5 cartas. Confira e toque em “Usar”.", "ok");
+  Object.assign(CAM.slots[livre], { fixa: n, pelaBarra: true });
+  CAM.ultimoAdd = n;
+  try { navigator.vibrate?.(60); } catch (e) {}
+  desenharSlots();
+  const lidas = CAM.slots.filter((s) => s.fixa !== undefined).length;
+  camStatus(lidas < TAM_MAO ? `✔ ${nome} (${lidas}/${TAM_MAO}). Passe o cursor do jogo para a próxima carta.` : "✔ Mão completa! Confira e toque em “Usar”.", "ok");
+}
+
+// Tocar num espaço já lido: tirar a carta ou repetir (quando você tem 2 cópias iguais lado a lado)
+function opcoesSlot(k) {
+  const s = CAM.slots[k];
+  if (s.fixa === undefined) return camStatus("Esse espaço ainda está vazio: passe o cursor do jogo na carta e aponte para a barra do nome.");
+  const n = s.fixa, el = document.createElement("div");
+  el.className = "cam-escolha";
+  el.innerHTML = `<div class="cam-escolha-caixa"><b>Espaço ${k + 1}: ${n ? esc(CARTAS.get(n).nome) : "vazio"}</b>
+    <button data-cam-op="tirar:${k}">🗑 Tirar esta carta (ler de novo)</button>
+    ${n ? `<button data-cam-op="repetir:${k}">➕ Tenho outra igual: pôr de novo no próximo espaço</button>` : ""}
+    <button data-cam-op="x">Cancelar</button></div>`;
+  $("#cam").append(el);
 }
 
 // Escolher à mão o que tem num espaço
@@ -1432,19 +1462,19 @@ async function abrirCamera() {
   el.innerHTML = `
     <div class="cam-topo"><b>Ler a mão pela câmera</b><button id="cam-fechar">✕ Fechar</button></div>
     <div class="cam-video"><video id="cam-v" playsinline muted autoplay></video>
-      <div class="cam-guia" id="cam-guia" style="aspect-ratio:3.4"></div>
+      <div class="cam-guia" id="cam-guia" style="aspect-ratio:6"></div>
       <div class="cam-achou" id="cam-achou" hidden></div>
-      <span class="cam-legenda">Deixe a mão (5 cartas + barra do nome) dentro do quadro — não precisa encaixar certinho</span></div>
+      <span class="cam-legenda">Aponte o quadro para a barra preta com o nome da carta</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="cam-slots" id="cam-slots"></div>
-    <p class="cam-dica">Com “?” o app ficou em dúvida: passe o cursor do jogo nessa carta (ele confirma pelo nome) ou toque no espaço para escolher. <span style="opacity:.6">(versão 4)</span></p>
-    <label class="cam-foto" id="cam-foto">📷 Tirar foto da mão (mais fácil)<input type="file" accept="image/*" capture="environment" id="cam-arquivo" hidden></label>
+    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 5)</span></p>
+    <label class="cam-foto secundario" id="cam-foto">📷 Ou tirar uma foto da mão<input type="file" accept="image/*" capture="environment" id="cam-arquivo" hidden></label>
     <div class="cam-acoes"><button id="cam-recomecar">Recomeçar</button><button class="principal" id="cam-usar" disabled>Usar estas cartas</button></div>`;
   document.body.append(el);
   document.body.classList.add("sem-rolagem");
-  Object.assign(CAM, { aberta: true, foto: false, mao: null, slots: slotsNovos(), candidato: null, contagem: 0, ultimoScan: 0 });
+  Object.assign(CAM, { aberta: true, foto: false, mao: null, ultimoAdd: null, slots: slotsNovos(), candidato: null, contagem: 0, ultimoScan: 0 });
   desenharSlots();
-  const prontos = Promise.all([carregarLeitor(), prepararArtes()]);
+  const prontos = carregarLeitor();
   prontos.catch(() => camStatus("Não consegui baixar o leitor de texto. Confira a internet e abra de novo.", "erro"));
   try {
     if (!navigator.mediaDevices?.getUserMedia) throw new Error("sem câmera");
@@ -1453,7 +1483,7 @@ async function abrirCamera() {
     const v = $("#cam-v"); v.srcObject = CAM.stream; await v.play().catch(() => {});
     camStatus("Preparando o reconhecimento… (só demora na primeira vez)");
     await prontos;
-    camStatus("Aponte para a sua mão (chegue perto ou dê zoom até ela ocupar quase todo o quadro) — ou toque em “Tirar foto da mão”.");
+    camStatus("Aponte para a barra do nome e passe o cursor do jogo pelas 5 cartas da mão.");
     ciclo();
   } catch (e) {
     $(".cam-video").hidden = true; $("#cam-slots").hidden = true; $(".cam-dica").hidden = true;
@@ -1516,9 +1546,24 @@ document.addEventListener("click", (e) => {
   const t = e.target.closest("button"); if (!t || !t.closest("#cam") && t.id !== "camera") return;
   if (t.id === "camera") abrirCamera();
   else if (t.id === "cam-fechar") fecharCamera();
-  else if (t.id === "cam-recomecar") { CAM.slots = slotsNovos(); CAM.ultimoScan = 0; desenharSlots(); camStatus("Recomeçando a leitura…"); }
-  else if (t.dataset.camSlot) escolherSlot(Number(t.dataset.camSlot));
-  else if (t.dataset.camPor) {
+  else if (t.id === "cam-recomecar") { CAM.slots = slotsNovos(); CAM.ultimoScan = 0; CAM.ultimoAdd = null; CAM.candidato = null; desenharSlots(); camStatus("Recomeçando: passe o cursor pela primeira carta."); }
+  else if (t.dataset.camSlot) {
+    const k = Number(t.dataset.camSlot), s = CAM.slots[k];
+    if (s.fixa === undefined && s.top.length) escolherSlot(k); else opcoesSlot(k);   // com palpites da foto: escolher; senão: tirar/repetir
+  } else if (t.dataset.camOp) {
+    t.closest(".cam-escolha").remove();
+    const [op, k] = t.dataset.camOp.split(":");
+    if (op === "tirar") {
+      const s = CAM.slots[+k];
+      if (s.fixa === CAM.ultimoAdd) CAM.ultimoAdd = null;
+      // as cartas seguintes sobem um espaço, para manter a ordem da mão
+      const lidas = CAM.slots.map((x) => x.fixa).filter((x, i) => x !== undefined && i !== +k);
+      CAM.slots = slotsNovos(); lidas.forEach((n, i) => Object.assign(CAM.slots[i], { fixa: n, pelaBarra: true }));
+      desenharSlots(); camStatus("Carta tirada. Passe o cursor nela de novo para ler.");
+    } else if (op === "repetir") {
+      const n = CAM.slots[+k].fixa; CAM.ultimoAdd = null; CAM.repetir = true; adicionarPeloNome(n);
+    }
+  } else if (t.dataset.camPor) {
     t.closest(".cam-escolha").remove();
     if (t.dataset.camPor !== "x") { const [k, n] = t.dataset.camPor.split(":").map(Number); Object.assign(CAM.slots[k], { fixa: n, pelaBarra: false }); desenharSlots(); }
   } else if (t.id === "cam-usar") {

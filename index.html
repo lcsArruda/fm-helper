@@ -1094,11 +1094,17 @@ function vetDaBase(a, x, y, w, h) {   // pedaço da arte da miniatura, em 12x12
 let ART_CV = null;
 function vetObservado(fonte, sx, sy, sw, sh) {
   const T = ART_T;
-  if (!ART_CV) { ART_CV = document.createElement("canvas"); ART_CV.width = T; ART_CV.height = T; }
+  // reduz para 48x48 e tira a média de blocos 4x4 (reduzir direto para 12x12 fica serrilhado em fotos grandes)
+  const G = T * 4;
+  if (!ART_CV) { ART_CV = document.createElement("canvas"); ART_CV.width = G; ART_CV.height = G; }
   const g = ART_CV.getContext("2d", { willReadFrequently: true });
-  g.drawImage(fonte, sx, sy, sw, sh, 0, 0, T, T);
-  const d = g.getImageData(0, 0, T, T).data, v = new Float32Array(T * T * 3);
-  for (let i = 0; i < T * T; i++) { v[i * 3] = d[i * 4]; v[i * 3 + 1] = d[i * 4 + 1]; v[i * 3 + 2] = d[i * 4 + 2]; }
+  g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high";
+  g.drawImage(fonte, sx, sy, sw, sh, 0, 0, G, G);
+  const d = g.getImageData(0, 0, G, G).data, v = new Float32Array(T * T * 3);
+  for (let y = 0; y < G; y++) for (let x = 0; x < G; x++) {
+    const o = ((y >> 2) * T + (x >> 2)) * 3, k = (y * G + x) * 4;
+    v[o] += d[k] / 16; v[o + 1] += d[k + 1] / 16; v[o + 2] += d[k + 2] / 16;
+  }
   return normalizaVet(v);
 }
 // No jogo a arte aparece ampliada (um recorte da ilustração): procura o melhor recorte
@@ -1386,7 +1392,7 @@ function slotDoCursor(fonte, m) {
 }
 
 async function ciclo() {
-  if (!CAM.aberta) return;
+  if (!CAM.aberta || CAM.foto) return;
   const m = areaDaMira();
   if (m) {
     if (!CAM.ocupadoNome) {
@@ -1431,12 +1437,12 @@ async function abrirCamera() {
       <span class="cam-legenda">Deixe a mão (5 cartas + barra do nome) dentro do quadro — não precisa encaixar certinho</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="cam-slots" id="cam-slots"></div>
-    <p class="cam-dica">Com “?” o app ficou em dúvida: passe o cursor do jogo nessa carta (ele confirma pelo nome) ou toque no espaço para escolher. <span style="opacity:.6">(versão 3)</span></p>
-    <label class="cam-foto" id="cam-foto" hidden>📷 Tirar foto da mão<input type="file" accept="image/*" capture="environment" id="cam-arquivo" hidden></label>
+    <p class="cam-dica">Com “?” o app ficou em dúvida: passe o cursor do jogo nessa carta (ele confirma pelo nome) ou toque no espaço para escolher. <span style="opacity:.6">(versão 4)</span></p>
+    <label class="cam-foto" id="cam-foto">📷 Tirar foto da mão (mais fácil)<input type="file" accept="image/*" capture="environment" id="cam-arquivo" hidden></label>
     <div class="cam-acoes"><button id="cam-recomecar">Recomeçar</button><button class="principal" id="cam-usar" disabled>Usar estas cartas</button></div>`;
   document.body.append(el);
   document.body.classList.add("sem-rolagem");
-  Object.assign(CAM, { aberta: true, slots: slotsNovos(), candidato: null, contagem: 0, ultimoScan: 0 });
+  Object.assign(CAM, { aberta: true, foto: false, mao: null, slots: slotsNovos(), candidato: null, contagem: 0, ultimoScan: 0 });
   desenharSlots();
   const prontos = Promise.all([carregarLeitor(), prepararArtes()]);
   prontos.catch(() => camStatus("Não consegui baixar o leitor de texto. Confira a internet e abra de novo.", "erro"));
@@ -1447,7 +1453,7 @@ async function abrirCamera() {
     const v = $("#cam-v"); v.srcObject = CAM.stream; await v.play().catch(() => {});
     camStatus("Preparando o reconhecimento… (só demora na primeira vez)");
     await prontos;
-    camStatus("Aponte para a sua mão. Se estiver longe, chegue mais perto ou dê zoom até a mão ocupar quase todo o quadro dourado.");
+    camStatus("Aponte para a sua mão (chegue perto ou dê zoom até ela ocupar quase todo o quadro) — ou toque em “Tirar foto da mão”.");
     ciclo();
   } catch (e) {
     $(".cam-video").hidden = true; $("#cam-slots").hidden = true; $(".cam-dica").hidden = true;
@@ -1461,7 +1467,7 @@ async function abrirCamera() {
 async function lerFoto(arquivo) {
   camStatus("Lendo a foto…");
   const img = new Image(); img.src = URL.createObjectURL(arquivo); await img.decode();
-  const escala = Math.min(1, 1600 / img.naturalWidth), c = document.createElement("canvas");
+  const escala = Math.min(1, 2000 / Math.max(img.naturalWidth, img.naturalHeight)), c = document.createElement("canvas");
   c.width = Math.round(img.naturalWidth * escala); c.height = Math.round(img.naturalHeight * escala);
   c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
   URL.revokeObjectURL(img.src);
@@ -1484,7 +1490,7 @@ async function lerFoto(arquivo) {
     await lerBarra(m, true).catch(() => {});
     desenharSlots();
     const duvidas = CAM.slots.filter((s) => situacao(s) === "duvida").length;
-    return camStatus(duvidas ? `Pronto! ${duvidas} espaço(s) com “?”: toque para confirmar a carta.` : "✔ Mão reconhecida! Confira e toque em “Usar”.", duvidas ? "" : "ok");
+    return camStatus(duvidas ? `Pronto! ${duvidas} espaço(s) com “?”: toque no espaço para escolher a carta — ou ponha o cursor do jogo nela e tire outra foto (o nome na barra confirma).` : "✔ Mão reconhecida! Confira e toque em “Usar”.", duvidas ? "" : "ok");
   }
   return lerNomeDaFoto(c);
 }
@@ -1525,7 +1531,11 @@ document.addEventListener("click", (e) => {
   }
 });
 document.addEventListener("change", (e) => {
-  if (e.target.id === "cam-arquivo" && e.target.files[0]) lerFoto(e.target.files[0]).catch((err) => camStatus("Não consegui ler a foto: " + (err.message || err), "erro"));
+  if (e.target.id === "cam-arquivo" && e.target.files[0]) { pararStream(); CAM.foto = true; $(".cam-video") && ($(".cam-video").hidden = true); }
+  if (e.target.id === "cam-arquivo" && e.target.files[0]) {
+    const arq = e.target.files[0]; e.target.value = "";   // deixa tirar outra foto depois
+    lerFoto(arq).catch((err) => camStatus("Não consegui ler a foto: " + (err.message || err), "erro"));
+  }
 });
 
 // ---------- Eventos ----------

@@ -186,11 +186,30 @@ body.sem-rolagem { overflow: hidden; }
 .cam-topo { display: flex; justify-content: space-between; align-items: center; font-size: 16px; color: var(--ouro-claro); }
 .cam-topo button, .cam-acoes button, .cam-carta button { font: inherit; color: var(--texto); background: var(--superficie-2); border: 1px solid var(--borda);
   border-radius: 10px; padding: 8px 12px; cursor: pointer; }
-.cam-video { position: relative; width: 100%; aspect-ratio: 4 / 3; max-height: 46vh; border-radius: 14px; overflow: hidden; background: #000; flex: none; }
+.cam-video { position: relative; width: 100%; aspect-ratio: 4 / 3; max-height: 42vh; border-radius: 14px; overflow: hidden; background: #000; flex: none; }
 .cam-video video { width: 100%; height: 100%; object-fit: cover; display: block; }
-.cam-guia { position: absolute; left: 4%; right: 4%; top: 50%; transform: translateY(-50%); aspect-ratio: 8 / 1;
+.cam-guia { position: absolute; left: 3%; right: 3%; top: 50%; transform: translateY(-50%);
   border: 2px solid var(--ouro); border-radius: 8px; box-shadow: 0 0 0 999px rgba(0,0,0,.45); }
-.cam-guia span { position: absolute; left: 0; right: 0; top: -26px; text-align: center; font-size: 12.5px; color: #fff; text-shadow: 0 1px 3px #000; }
+.cam-guia i { position: absolute; border: 1.5px dashed rgba(240,196,106,.85); border-radius: 4px; }
+.cam-guia i.g-barra { border-color: rgba(255,255,255,.8); }
+.cam-legenda { position: absolute; left: 0; right: 0; top: 8px; text-align: center; font-size: 12.5px; color: #fff; text-shadow: 0 1px 3px #000; }
+.cam-slots { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.cam-slot { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 5px 3px 6px; border-radius: 10px; position: relative;
+  background: var(--superficie); border: 1.5px solid var(--borda); color: var(--texto); font: inherit; cursor: pointer; min-width: 0; }
+.cam-slot .m54 { width: 100%; height: auto; aspect-ratio: 1; }
+.cam-slot .nm { font-size: 10.5px; line-height: 1.2; text-align: center; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; min-height: 2.4em; }
+.cam-slot .selo { position: absolute; top: 2px; right: 2px; font-size: 10px; font-weight: 700; border-radius: 6px; padding: 1px 5px; background: var(--cabecalho); }
+.cam-slot.certa, .cam-slot.fixa { border-color: var(--verde); }
+.cam-slot.certa .selo, .cam-slot.fixa .selo { color: var(--verde); }
+.cam-slot.duvida { border-color: var(--laranja); }
+.cam-slot.duvida .selo { color: var(--laranja); }
+.cam-slot.vazio, .cam-slot.lendo { opacity: .65; }
+.cam-escolha { position: fixed; inset: 0; z-index: 70; background: rgba(0,0,0,.6); display: flex; align-items: flex-end; }
+.cam-escolha-caixa { width: 100%; background: var(--superficie); border-radius: 16px 16px 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  display: flex; flex-direction: column; gap: 8px; }
+.cam-escolha-caixa b { color: var(--ouro-claro); }
+.cam-escolha-caixa button { display: flex; align-items: center; gap: 10px; font: inherit; color: var(--texto); background: var(--superficie-2);
+  border: 1px solid var(--borda); border-radius: 10px; padding: 8px 10px; text-align: left; cursor: pointer; }
 .cam-status { font-size: 14px; font-weight: 600; color: var(--texto); min-height: 20px; }
 .cam-status.ok { color: var(--verde); }
 .cam-status.erro { color: var(--laranja); }
@@ -909,10 +928,16 @@ function fizFusao(i) {
 }
 
 // ---------- Ler a mão pela câmera ----------
-// A câmera fica ligada; o app lê o nome da carta na barra de baixo da tela do jogo
-// (a carta onde está o cursor). Você passa o cursor pelas 5 cartas e confirma no fim.
-const CAM = { aberta: false, stream: null, worker: null, canvas: null, candidato: null, contagem: 0, vazias: 0,
-  ultimaAdd: null, achadas: [], ocupado: false };
+// Uma mira só: as 5 cartas da mão + a barra do nome embaixo.
+// 1) Pela ARTE, o app tenta reconhecer as 5 cartas de uma vez.
+// 2) Pelo NOME na barra (carta onde está o cursor), ele confirma as que ficaram em dúvida.
+// Você só confere e toca em "Usar".
+const CAM = { aberta: false, stream: null, worker: null, canvas: null, modo: null, ocupadoNome: false, ocupadoArte: false,
+  candidato: null, contagem: 0, slots: [], base: null, ultimoScan: 0, foto: false };
+const GUIA = { aspecto: 985 / 235,
+  cartas: [[0.005, 0.190], [0.239, 0.409], [0.452, 0.612], [0.655, 0.810], [0.846, 0.996]],
+  arte: { margem: 0.0142, v0: 0.094, v1: 0.443 },
+  barra: { u0: 0, u1: 0.73, v0: 0.75, v1: 1 } };
 let NOMES_NORM = null;
 const normNome = (s) => s.toLowerCase().replace(/[^a-z0-9#]/g, "");
 
@@ -927,7 +952,6 @@ function distLev(a, b) {
   }
   return ant[b.length];
 }
-
 // Menor nº de erros para achar `nome` em algum trecho do texto lido
 function distTrecho(nome, texto) {
   let ant = new Array(texto.length + 1).fill(0), atual = new Array(texto.length + 1);
@@ -939,7 +963,6 @@ function distTrecho(nome, texto) {
   }
   return Math.min(...ant);
 }
-
 // Texto lido -> carta mais parecida (ou null se não der para ter certeza)
 function acharCarta(texto) {
   const nums = (texto.match(/\d{2,4}/g) || []).map(Number);
@@ -950,8 +973,8 @@ function acharCarta(texto) {
   for (const [c, nn] of NOMES_NORM) {
     let d;
     if (nn.length > t.length + 2) d = distLev(t, nn.slice(0, t.length)) / t.length + 0.02;   // nome cortado na tela
-    else d = distTrecho(nn, t) / nn.length;   // o nome pode vir com "sujeira" antes/depois no texto lido
-    if (nums.length >= 2 && monstro(c) && nums.includes(c.atk) && nums.includes(c.def)) d -= 0.1;  // ATK/DEF confere
+    else d = distTrecho(nn, t) / nn.length;   // o nome pode vir com "sujeira" antes/depois
+    if (nums.length >= 2 && monstro(c) && nums.includes(c.atk) && nums.includes(c.def)) d -= 0.1;
     const r = { c, d };
     if (!melhor || d < melhor.d) { segundo = melhor; melhor = r; } else if (!segundo || d < segundo.d) segundo = r;
   }
@@ -962,7 +985,7 @@ function acharCarta(texto) {
 
 // Recorta, aumenta e deixa só o texto claro (preto no branco) — limiar automático (Otsu)
 function prepararRecorte(fonte, sx, sy, sw, sh) {
-  const esc = Math.max(1, Math.min(4, 360 / sh, 2400 / sw));   // letras grandes leem melhor
+  const esc = Math.max(1, Math.min(4, 360 / sh, 2400 / sw));
   const c = (CAM.canvas ||= document.createElement("canvas"));
   c.width = Math.round(sw * esc); c.height = Math.round(sh * esc);
   const g = c.getContext("2d", { willReadFrequently: true });
@@ -1005,87 +1028,310 @@ function carregarLeitor() {
   CAM.worker.catch(() => { CAM.worker = null; });
   return CAM.worker;
 }
-
-async function lerTexto(canvas, modo = "7") {
+async function lerTexto(canvas, modo = "6") {
   const w = await carregarLeitor();
   if (CAM.modo !== modo) { await w.setParameters({ tessedit_pageseg_mode: modo }); CAM.modo = modo; }
   return (await w.recognize(canvas)).data.text;
 }
 
+// ---- Reconhecer pela arte ----
+const ART_L = 48, ART_T = 12;
+function normalizaVet(v) {   // tira a diferença de brilho/cor da TV e da câmera
+  const n3 = v.length / 3;
+  for (let c = 0; c < 3; c++) {
+    let m = 0; for (let i = c; i < v.length; i += 3) m += v[i]; m /= n3;
+    let s = 0; for (let i = c; i < v.length; i += 3) s += (v[i] - m) ** 2; s = Math.sqrt(s / n3) + 8;
+    for (let i = c; i < v.length; i += 3) v[i] = (v[i] - m) / s;
+  }
+  let n = 0; for (const x of v) n += x * x; n = Math.sqrt(n) || 1;
+  for (let i = 0; i < v.length; i++) v[i] /= n;
+  return v;
+}
+async function prepararArtes() {
+  if (CAM.base) return CAM.base;
+  const L = ART_L, cv = document.createElement("canvas"); cv.width = L; cv.height = L;
+  const g = cv.getContext("2d", { willReadFrequently: true }), base = [];
+  let i = 0;
+  for (const c of LISTA) {
+    const src = imagem(c.n); if (!src) continue;
+    const im = new Image(); im.src = src; await im.decode();
+    g.drawImage(im, 0, 0, L, L);
+    const d = g.getImageData(0, 0, L, L).data, a = new Float32Array(L * L * 3);
+    for (let k = 0; k < L * L; k++) { a[k * 3] = d[k * 4]; a[k * 3 + 1] = d[k * 4 + 1]; a[k * 3 + 2] = d[k * 4 + 2]; }
+    base.push([c.n, a]);
+    if (++i % 60 === 0) await new Promise((r) => setTimeout(r));
+  }
+  // Busca rápida: recortes de cada miniatura já calculados uma vez (guardados compactos, em 8 bits)
+  const D = ART_T * ART_T * 3, PL = GROSSO_PL(), M = new Int8Array(base.length * PL.length * D);
+  base.forEach(([, a], ci) => {
+    PL.forEach(([x, y, w, h], pi) => {
+      const v = vetDaBase(a, x, y, w, h), o = (ci * PL.length + pi) * D;
+      for (let j = 0; j < D; j++) M[o + j] = Math.max(-127, Math.min(127, Math.round(v[j] * 600)));
+    });
+  });
+  CAM.grosso = { M, NP: PL.length, D };
+  return (CAM.base = base);
+}
+function GROSSO_PL() {   // recortes testados na busca rápida (aspecto médio da arte no jogo)
+  const L = ART_L, asp = 0.6, pl = [];
+  for (const s of [1, 0.7, 0.5, 0.38]) {
+    let w = L * s, h = w * asp; if (h > L) { h = L; w = h / asp; }
+    for (let ix = 0; ix < 3; ix++) for (let iy = 0; iy < 3; iy++) pl.push([(L - w) * ix / 2, (L - h) * iy / 2, w, h]);
+  }
+  return pl;
+}
+function vetDaBase(a, x, y, w, h) {   // pedaço da arte da miniatura, em 12x12
+  const L = ART_L, T = ART_T, v = new Float32Array(T * T * 3);
+  for (let j = 0; j < T; j++) for (let i = 0; i < T; i++) {
+    const xx = Math.min(L - 2, Math.max(0, x + w * (i + 0.5) / T - 0.5)), yy = Math.min(L - 2, Math.max(0, y + h * (j + 0.5) / T - 0.5));
+    const x0 = Math.floor(xx), y0 = Math.floor(yy), fx = xx - x0, fy = yy - y0, o = (j * T + i) * 3;
+    for (let c = 0; c < 3; c++) {
+      const k = (y0 * L + x0) * 3 + c;
+      v[o + c] = a[k] * (1 - fx) * (1 - fy) + a[k + 3] * fx * (1 - fy) + a[k + L * 3] * (1 - fx) * fy + a[k + L * 3 + 3] * fx * fy;
+    }
+  }
+  return normalizaVet(v);
+}
+let ART_CV = null;
+function vetObservado(fonte, sx, sy, sw, sh) {
+  const T = ART_T;
+  if (!ART_CV) { ART_CV = document.createElement("canvas"); ART_CV.width = T; ART_CV.height = T; }
+  const g = ART_CV.getContext("2d", { willReadFrequently: true });
+  g.drawImage(fonte, sx, sy, sw, sh, 0, 0, T, T);
+  const d = g.getImageData(0, 0, T, T).data, v = new Float32Array(T * T * 3);
+  for (let i = 0; i < T * T; i++) { v[i * 3] = d[i * 4]; v[i * 3 + 1] = d[i * 4 + 1]; v[i * 3 + 2] = d[i * 4 + 2]; }
+  return normalizaVet(v);
+}
+// No jogo a arte aparece ampliada (um recorte da ilustração): procura o melhor recorte
+function notaArte(vos, a, asp, escalas, passos) {   // vos: uma ou várias janelas observadas
+  if (!Array.isArray(vos)) vos = [vos];
+  const L = ART_L; let melhor = -1;
+  for (const s of escalas) {
+    let w = L * s, h = w * asp; if (h > L) { h = L; w = h / asp; }
+    for (let ix = 0; ix < passos; ix++) for (let iy = 0; iy < passos; iy++) {
+      const vb = vetDaBase(a, (L - w) * (passos > 1 ? ix / (passos - 1) : 0.5), (L - h) * (passos > 1 ? iy / (passos - 1) : 0.5), w, h);
+      for (const vo of vos) { let d = 0; for (let i = 0; i < vb.length; i++) d += vb[i] * vo[i]; if (d > melhor) melhor = d; }
+    }
+  }
+  return melhor;
+}
+async function reconhecerArte(fonte, sx, sy, sw, sh) {
+  const base = await prepararArtes(), asp = sh / sw;
+  // a janela um pouquinho para os lados também (cada carta fica alguns pixels mais alta/baixa)
+  const janelas = [[0, 0], [-0.05, 0], [0.05, 0], [0, -0.07], [0, 0.07]].map(([dx, dy]) => vetObservado(fonte, sx + sw * dx, sy + sh * dy, sw, sh));
+  const { M, NP, D } = CAM.grosso, grosso = [];
+  for (let ci = 0; ci < base.length; ci++) {
+    let melhor = -1e9;
+    for (let pi = 0; pi < NP; pi++) {
+      const o = (ci * NP + pi) * D;
+      for (const v of janelas) { let d = 0; for (let j = 0; j < D; j++) d += M[o + j] * v[j]; if (d > melhor) melhor = d; }
+    }
+    grosso.push([melhor, ci]);
+  }
+  grosso.sort((a, b) => b[0] - a[0]);
+  await new Promise((r) => setTimeout(r));
+  const fino = grosso.slice(0, 80).map(([, i]) => [notaArte(janelas, base[i][1], asp, [1, 0.85, 0.7, 0.58, 0.48, 0.4, 0.33], 5), base[i][0]]);
+  return fino.sort((a, b) => b[0] - a[0]).slice(0, 6);   // [[nota, nº da carta], ...]
+}
+
+// ---- Estado dos 5 espaços ----
+function slotsNovos() { return Array.from({ length: TAM_MAO }, () => ({ top: [], seguidas: 0, fixa: undefined, pelaBarra: false })); }
+function situacao(s) {   // "fixa" (você escolheu ou o nome confirmou) | "certa" | "duvida" | "vazio" | "lendo"
+  if (s.fixa !== undefined) return s.fixa ? "fixa" : "vazio";
+  if (!s.top.length) return "lendo";
+  const [a, b] = s.top;
+  if (a[0] >= 0.42 && (!b || a[0] - b[0] >= 0.06) && s.seguidas >= 2) return "certa";
+  return "duvida";
+}
+function cartaDoSlot(s) { const st = situacao(s); return st === "fixa" ? s.fixa : st === "certa" ? s.top[0][1] : null; }
+
+function desenharSlots() {
+  const box = $("#cam-slots"); if (!box) return;
+  box.innerHTML = CAM.slots.map((s, k) => {
+    const st = situacao(s), n = st === "fixa" ? s.fixa : (st === "certa" || st === "duvida") ? s.top[0][1] : null;
+    const rot = { fixa: s.pelaBarra ? "✔ nome" : "✔", certa: "✔", duvida: "?", vazio: "vazio", lendo: "…" }[st];
+    return `<button class="cam-slot ${st}" data-cam-slot="${k}">${n ? mini(n, "m54") : `<span class="mini sem m54">${k + 1}</span>`}
+      <span class="nm">${n ? esc(CARTAS.get(n).nome) : st === "vazio" ? "vazio" : "lendo…"}</span><span class="selo">${rot}</span></button>`;
+  }).join("");
+  const prontas = CAM.slots.map(cartaDoSlot).filter(Boolean).length, duvidas = CAM.slots.filter((s) => situacao(s) === "duvida").length;
+  const b = $("#cam-usar");
+  b.disabled = !prontas;
+  b.textContent = prontas ? `Usar ${prontas} carta(s)${duvidas ? ` · ${duvidas} em dúvida fica(m) de fora` : ""}` : "Usar estas cartas";
+}
+
 function camStatus(txt, tipo = "") { const s = $("#cam-status"); if (s) { s.textContent = txt; s.className = "cam-status " + tipo; } }
 
-function desenharAchadas() {
-  const box = $("#cam-achadas"); if (!box) return;
-  box.innerHTML = CAM.achadas.length
-    ? CAM.achadas.map((n, i) => { const c = CARTAS.get(n);
-        return `<div class="cam-carta">${mini(n, "m40")}<span><b>${i + 1}. ${esc(c.nome)}</b><small>${monstro(c) ? `${c.atk}/${c.def}` : esc(c.tipo)}</small></span>
-          <button data-cam-dup="${i}" aria-label="Adicionar outra igual">+1</button><button data-cam-tirar="${i}" aria-label="Tirar">✕</button></div>`; }).join("")
-    : `<div class="cam-vazia">Nenhuma carta lida ainda.</div>`;
-  $("#cam-usar").disabled = !CAM.achadas.length;
-  $("#cam-usar").textContent = CAM.achadas.length ? `Usar estas ${CAM.achadas.length} carta(s)` : "Usar estas cartas";
-}
-
-function registrarLeitura(achou, textoLido) {
-  if (!achou) {
-    CAM.candidato = null; CAM.contagem = 0;
-    if (++CAM.vazias >= 3) CAM.ultimaAdd = null;    // a barra sumiu/mudou: a mesma carta pode ser lida de novo
-    camStatus(textoLido.trim() ? "Procurando o nome da carta… (segure firme e encaixe a barra)" : "Aponte para a barra do nome, embaixo das cartas.");
-    return;
-  }
-  CAM.vazias = 0;
-  const n = achou.c.n;
-  if (n === CAM.candidato) CAM.contagem++; else { CAM.candidato = n; CAM.contagem = 1; }
-  if (CAM.contagem < 2) { camStatus(`Lendo: ${achou.c.nome}…`); return; }
-  if (n === CAM.ultimaAdd) { camStatus(`✔ ${achou.c.nome} já está na lista. Passe o cursor para a próxima carta.`, "ok"); return; }
-  if (CAM.achadas.length >= TAM_MAO) { camStatus("Já li 5 cartas. Confira a lista e toque em “Usar estas cartas”.", "ok"); return; }
-  CAM.achadas.push(n); CAM.ultimaAdd = n;
-  try { navigator.vibrate?.(60); } catch (e) {}
-  camStatus(`✔ Li: ${achou.c.nome}. Agora passe o cursor para a próxima carta.`, "ok");
-  desenharAchadas();
-}
-
-// Lê o pedaço do vídeo que está dentro da moldura
-async function lerQuadro() {
+// Onde está a mira dentro do vídeo (em pixels do vídeo)
+function areaDaMira() {
   const v = $("#cam-v"), guia = $("#cam-guia");
-  if (!v || !v.videoWidth) return;
+  if (!v || !v.videoWidth) return null;
   const rv = v.getBoundingClientRect(), rg = guia.getBoundingClientRect();
   const s = Math.max(rv.width / v.videoWidth, rv.height / v.videoHeight);
   const ox = (rv.width - v.videoWidth * s) / 2, oy = (rv.height - v.videoHeight * s) / 2;
-  const sx = (rg.left - rv.left - ox) / s, sy = (rg.top - rv.top - oy) / s;
-  const canvas = prepararRecorte(v, Math.max(0, sx), Math.max(0, sy), rg.width / s, rg.height / s);
+  return { fonte: v, x: (rg.left - rv.left - ox) / s, y: (rg.top - rv.top - oy) / s, w: rg.width / s, h: rg.height / s };
+}
+
+// Encaixe automático: acha a barra preta do nome e as bordas das cartas e corrige a mira,
+// para não precisar alinhar o celular com perfeição. Medidas tiradas de uma foto da tela do jogo.
+const MOD = { x0: 245, y0: 400, larg: 985, alt: 235, barra: [574, 623], faixa: [425, 555],
+  bordas: [250, 432, 480, 648, 690, 848, 890, 1042, 1078, 1226] };
+let ALI_CV = null;
+function alinhar(fonte, m) {
+  const s0 = m.w / MOD.larg, ax = m.x - m.w * 0.15, aw = m.w * 1.3, ay = m.y - m.h * 0.25, ah = m.h * 1.6;
+  const W = 520, H = Math.round(W * ah / aw), q = aw / W;
+  if (!ALI_CV) ALI_CV = document.createElement("canvas");
+  ALI_CV.width = W; ALI_CV.height = H;
+  const g = ALI_CV.getContext("2d", { willReadFrequently: true });
+  g.fillStyle = "#fff"; g.fillRect(0, 0, W, H); g.drawImage(fonte, ax, ay, aw, ah, 0, 0, W, H);
+  const d = g.getImageData(0, 0, W, H).data, lum = new Float32Array(W * H);
+  for (let i = 0; i < W * H; i++) lum[i] = Math.max(d[i * 4], d[i * 4 + 1], d[i * 4 + 2]);
+  const fx = (X) => (m.x + s0 * (X - MOD.x0) - ax) / q, fy = (Y) => (m.y + s0 * (Y - MOD.y0) - ay) / q;
+  // 1) a barra do nome: faixa de linhas escuras no meio da mira
+  const c0 = Math.max(0, Math.round(fx(560))), c1 = Math.min(W, Math.round(fx(920)));
+  const fr = []; for (let y = 0; y < H; y++) { let n = 0; for (let x = c0; x < c1; x++) n += lum[y * W + x] < 95; fr.push(n / Math.max(1, c1 - c0)); }
+  const altEsp = (MOD.barra[1] - MOD.barra[0]) * s0 / q, cEsp = (fy(MOD.barra[0]) + fy(MOD.barra[1])) / 2;
+  let faixa = null;
+  for (let y = 0; y < H;) {
+    if (fr[y] > 0.7) {
+      let e = y; while (e < H && fr[e] > 0.55) e++;
+      const h = e - y, dist = Math.abs((y + e) / 2 - cEsp);
+      if (h > altEsp * 0.6 && h < altEsp * 1.6 && (!faixa || dist < faixa.dist)) faixa = { t: y, b: e, dist };
+      y = e;
+    } else y++;
+  }
+  if (!faixa) return null;
+  const s1 = s0 * (faixa.b - faixa.t) / altEsp;
+  // 2) bordas das cartas: perfil de contraste horizontal na altura das cartas
+  const P = new Float32Array(W);
+  for (let x = 1; x < W - 1; x++) {
+    let soma = 0;
+    for (let Y = MOD.faixa[0]; Y < MOD.faixa[1]; Y += 3) {
+      const y = Math.round(faixa.t + (Y - MOD.barra[0]) * s1 / q); if (y < 0 || y >= H) continue;
+      soma += Math.abs(lum[y * W + x + 1] - lum[y * W + x - 1]);
+    }
+    P[x] = soma;
+  }
+  // fora da imagem não conta (a beirada do quadro não é borda de carta)
+  const FW = fonte.videoWidth || fonte.naturalWidth || fonte.width;
+  const xa = Math.ceil((0 - ax) / q) + 3, xb = Math.floor((FW - ax) / q) - 3;
+  for (let x = 0; x < W; x++) if (x < xa || x > xb) P[x] = 0;
+  const Pm = new Float32Array(W); for (let x = 1; x < W - 1; x++) Pm[x] = Math.max(P[x - 1], P[x], P[x + 1]);
+  const xm = fx(MOD.x0); let ganha = null;
+  for (let s = s1 * 0.9; s <= s1 * 1.1; s += s1 * 0.01) for (let dx = -W * 0.14; dx <= W * 0.14; dx++) {
+    let sc = 0; for (const X of MOD.bordas) { const x = Math.round(xm + dx + (X - MOD.x0) * s / q); if (x > 0 && x < W) sc += Pm[x]; }
+    if (!ganha || sc > ganha.sc) ganha = { sc, s, dx };
+  }
+  const s = ganha.s;
+  let media = 0; for (let x = 0; x < W; x++) media += P[x]; media /= W;
+  return { fonte, nota: ganha.sc / (media * MOD.bordas.length + 1), x: ax + (xm + ganha.dx) * q, y: ay + faixa.t * q - (MOD.barra[0] - MOD.y0) * s, w: MOD.larg * s, h: MOD.alt * s };
+}
+
+// Congela um quadro do vídeo (todas as 5 cartas vêm do mesmo instante) e encaixa a mira nele
+let QUADRO = null;
+function quadroAlinhado(m) {
+  const v = m.fonte;
+  if (v.videoWidth) {
+    if (!QUADRO) QUADRO = document.createElement("canvas");
+    QUADRO.width = v.videoWidth; QUADRO.height = v.videoHeight;
+    QUADRO.getContext("2d").drawImage(v, 0, 0);
+    m = { ...m, fonte: QUADRO };
+  }
+  const a = alinhar(m.fonte, m);
+  CAM.encaixe = !!a;
+  return a || m;
+}
+
+// Numa foto inteira: procura onde está a mão (testa vários tamanhos e posições da mira)
+function acharMaoNaFoto(c) {
+  let melhor = null;
+  for (let fw = 0.45; fw <= 1.0; fw += 0.08) for (const fx of [0.42, 0.5, 0.58]) for (let fy = 0.1; fy <= 0.92; fy += 0.035) {
+    const w = c.width * fw, h = w * MOD.alt / MOD.larg;
+    const a = alinhar(c, { fonte: c, x: c.width * fx - w / 2, y: c.height * fy - h / 2, w, h });
+    if (a && (!melhor || a.nota > melhor.nota)) melhor = a;
+  }
+  return melhor && melhor.nota > 1.6 ? melhor : null;
+}
+
+async function escanearArtes(m, foto = false) {
+  if (!foto) {
+    m = quadroAlinhado(m);
+    if (!CAM.encaixe) { camStatus("Não achei a barra preta do nome. Deixe a mão e a barra dentro do quadro dourado."); return; }
+  }
+  for (let k = 0; k < TAM_MAO && CAM.aberta; k++) {
+    const [u0, u1] = GUIA.cartas[k], A = GUIA.arte;
+    const sx = m.x + m.w * (u0 + A.margem), sw = m.w * (u1 - u0 - 2 * A.margem), sy = m.y + m.h * A.v0, sh = m.h * (A.v1 - A.v0);
+    const top = await reconhecerArte(m.fonte, sx, sy, sw, sh), s = CAM.slots[k];
+    s.seguidas = s.top.length && top[0][1] === s.top[0][1] ? s.seguidas + 1 : 1;
+    s.top = top;
+    desenharSlots();
+  }
+}
+
+// Nome na barra -> confirma a carta no espaço onde a arte mais combina com ela
+function confirmarPelaBarra(n) {
+  let melhor = null;
+  CAM.slots.forEach((s, k) => {
+    if (s.fixa !== undefined && !s.pelaBarra) return;   // você já escolheu esse espaço
+    const pos = s.top.findIndex(([, m]) => m === n);
+    if (pos < 0) return;
+    // vale mais o espaço onde ela é o 1º palpite; depois, a maior nota
+    const nota = s.top[pos][0] + (pos === 0 ? 1 : 0);
+    if (!melhor || nota > melhor.nota) melhor = { k, nota };
+  });
+  const nome = CARTAS.get(n).nome;
+  if (!melhor) return camStatus(`Li “${nome}” na barra, mas não sei em qual espaço ela está. Toque no espaço para escolher.`);
+  const s = CAM.slots[melhor.k];
+  if (s.fixa === n) return camStatus(`✔ ${nome} (espaço ${melhor.k + 1}) confirmada.`, "ok");
+  s.fixa = n; s.pelaBarra = true;
+  try { navigator.vibrate?.(60); } catch (e) {}
+  camStatus(`✔ ${nome} confirmada no espaço ${melhor.k + 1} pelo nome.`, "ok");
+  desenharSlots();
+}
+
+async function lerBarra(m, foto = false) {
+  m = alinhar(m.fonte, m) || m;
+  const B = GUIA.barra;
+  const canvas = prepararRecorte(m.fonte, m.x + m.w * B.u0, m.y + m.h * B.v0, m.w * (B.u1 - B.u0), m.h * (B.v1 - B.v0));
   const texto = await lerTexto(canvas, "6");
-  let melhor = null;   // a moldura pode pegar um pedaço das cartas também: vale a linha que mais parece um nome
+  let melhor = null;
   for (const linha of texto.split(/\n+/)) { const a = acharCarta(linha); if (a && (!melhor || a.d < melhor.d)) melhor = a; }
-  registrarLeitura(melhor, texto);
+  if (!melhor) { CAM.candidato = null; CAM.contagem = 0; return; }
+  if (melhor.c.n === CAM.candidato) CAM.contagem++; else { CAM.candidato = melhor.c.n; CAM.contagem = 1; }
+  if (CAM.contagem === 2 || foto) confirmarPelaBarra(melhor.c.n);
 }
 
 async function ciclo() {
   if (!CAM.aberta) return;
-  if (!CAM.ocupado) {
-    CAM.ocupado = true;
-    try { await lerQuadro(); } catch (e) { camStatus("Não consegui ler agora: " + (e.message || e), "erro"); }
-    CAM.ocupado = false;
+  const m = areaDaMira();
+  if (m) {
+    if (!CAM.ocupadoNome) {
+      CAM.ocupadoNome = true;
+      lerBarra(m).catch(() => {}).finally(() => { CAM.ocupadoNome = false; });
+    }
+    if (!CAM.ocupadoArte && Date.now() - CAM.ultimoScan > 1200) {
+      CAM.ocupadoArte = true;
+      escanearArtes(areaDaMira() || m).catch(() => {}).finally(() => {
+        CAM.ocupadoArte = false; CAM.ultimoScan = Date.now();
+        const st = CAM.slots.map(situacao);
+        if (!CAM.encaixe) return;
+        if (st.every((x) => x === "fixa" || x === "certa" || x === "vazio")) camStatus("✔ Mão reconhecida! Confira e toque em “Usar”.", "ok");
+        else if (st.includes("duvida")) camStatus("Os espaços com “?” ficaram em dúvida: passe o cursor do jogo neles (o nome confirma) ou toque para escolher.");
+      });
+    }
   }
-  if (CAM.aberta) setTimeout(ciclo, 300);
+  setTimeout(ciclo, 250);
 }
 
-// Plano B: sem câmera ao vivo, lê uma foto inteira
-async function lerFoto(arquivo) {
-  camStatus("Lendo a foto…");
-  const img = new Image();
-  img.src = URL.createObjectURL(arquivo);
-  await img.decode();
-  const escala = Math.min(1, 1600 / img.naturalWidth);
-  const c = document.createElement("canvas");
-  c.width = Math.round(img.naturalWidth * escala); c.height = Math.round(img.naturalHeight * escala);
-  c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-  URL.revokeObjectURL(img.src);
-  const texto = await lerTexto(c, "11");
-  let melhor = null;
-  for (const linha of texto.split(/\n+/)) { const a = acharCarta(linha); if (a && (!melhor || a.d < melhor.d)) melhor = a; }
-  if (!melhor) return camStatus("Não achei o nome de nenhuma carta nessa foto. Tente mais de perto, com a barra do nome bem visível.", "erro");
-  CAM.ultimaAdd = null; CAM.candidato = melhor.c.n; CAM.contagem = 1;
-  registrarLeitura(melhor, "");
+// Escolher à mão o que tem num espaço
+function escolherSlot(k) {
+  const s = CAM.slots[k], ops = s.top.slice(0, 4);
+  const el = document.createElement("div");
+  el.className = "cam-escolha";
+  el.innerHTML = `<div class="cam-escolha-caixa"><b>Espaço ${k + 1}: qual é a carta?</b>
+    ${ops.map(([, n]) => `<button data-cam-por="${k}:${n}">${mini(n, "m40")}<span>${esc(CARTAS.get(n).nome)}</span></button>`).join("")}
+    <button data-cam-por="${k}:0"><span class="mini sem m40">—</span><span>Espaço vazio / nenhuma destas</span></button>
+    <button data-cam-por="x">Cancelar</button></div>`;
+  $("#cam").append(el);
 }
 
 async function abrirCamera() {
@@ -1095,48 +1341,99 @@ async function abrirCamera() {
   el.innerHTML = `
     <div class="cam-topo"><b>Ler a mão pela câmera</b><button id="cam-fechar">✕ Fechar</button></div>
     <div class="cam-video"><video id="cam-v" playsinline muted autoplay></video>
-      <div class="cam-guia" id="cam-guia"><span>Encaixe aqui a barra do nome da carta</span></div></div>
+      <div class="cam-guia" id="cam-guia" style="aspect-ratio:${GUIA.aspecto}">
+        ${GUIA.cartas.map(([u0, u1]) => `<i class="g-carta" style="left:${u0 * 100}%;width:${(u1 - u0) * 100}%;top:2%;height:64%"></i>`).join("")}
+        <i class="g-barra" style="left:${GUIA.barra.u0 * 100}%;width:${(GUIA.barra.u1 - GUIA.barra.u0) * 100}%;top:${GUIA.barra.v0 * 100}%;height:${(GUIA.barra.v1 - GUIA.barra.v0) * 100}%"></i>
+      </div><span class="cam-legenda">Encaixe as 5 cartas e a barra do nome nos quadros</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
-    <p class="cam-dica">No jogo, passe o cursor por cada carta da sua mão, uma de cada vez. Cada carta lida aparece aqui embaixo. Toque em <b>+1</b> se tiver duas iguais.</p>
-    <label class="cam-foto" id="cam-foto" hidden>📷 Tirar foto da barra do nome<input type="file" accept="image/*" capture="environment" id="cam-arquivo" hidden></label>
-    <div class="cam-achadas" id="cam-achadas"></div>
+    <div class="cam-slots" id="cam-slots"></div>
+    <p class="cam-dica">Com “?” o app ficou em dúvida: passe o cursor do jogo nessa carta (ele confirma pelo nome) ou toque no espaço para escolher.</p>
+    <label class="cam-foto" id="cam-foto" hidden>📷 Tirar foto da mão<input type="file" accept="image/*" capture="environment" id="cam-arquivo" hidden></label>
     <div class="cam-acoes"><button id="cam-recomecar">Recomeçar</button><button class="principal" id="cam-usar" disabled>Usar estas cartas</button></div>`;
   document.body.append(el);
   document.body.classList.add("sem-rolagem");
-  Object.assign(CAM, { aberta: true, achadas: [], candidato: null, contagem: 0, vazias: 0, ultimaAdd: null });
-  desenharAchadas();
-  carregarLeitor().catch(() => camStatus("Não consegui baixar o leitor de texto. Confira a internet e abra de novo.", "erro"));
+  Object.assign(CAM, { aberta: true, slots: slotsNovos(), candidato: null, contagem: 0, ultimoScan: 0 });
+  desenharSlots();
+  const prontos = Promise.all([carregarLeitor(), prepararArtes()]);
+  prontos.catch(() => camStatus("Não consegui baixar o leitor de texto. Confira a internet e abra de novo.", "erro"));
   try {
     if (!navigator.mediaDevices?.getUserMedia) throw new Error("sem câmera");
     CAM.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
     if (!CAM.aberta) return pararStream();
     const v = $("#cam-v"); v.srcObject = CAM.stream; await v.play().catch(() => {});
-    camStatus("Carregando o leitor… (só demora na primeira vez)");
-    await carregarLeitor();
-    camStatus("Aponte para a barra do nome, embaixo das cartas.");
+    camStatus("Preparando o reconhecimento… (só demora na primeira vez)");
+    await prontos;
+    camStatus("Aponte para a sua mão: as 5 cartas nos quadros de cima e a barra do nome no de baixo.");
     ciclo();
   } catch (e) {
-    $(".cam-video").hidden = true;
+    $(".cam-video").hidden = true; $("#cam-slots").hidden = true; $(".cam-dica").hidden = true;
     $("#cam-foto").hidden = false;
-    camStatus("A câmera ao vivo não abriu aqui. Use “Tirar foto”: fotografe a tela com o cursor em uma carta.", "erro");
+    CAM.foto = true;
+    camStatus("A câmera ao vivo não abriu aqui. Use “Tirar foto”: fotografe a tela da TV com a sua mão (as 5 cartas e a barra do nome) — uma foto só já lê a mão inteira.", "erro");
   }
 }
 
-function pararStream() { CAM.stream?.getTracks().forEach((t) => t.stop()); CAM.stream = null; }
-function fecharCamera() {
-  CAM.aberta = false; pararStream();
-  $("#cam")?.remove(); document.body.classList.remove("sem-rolagem");
+// Plano B (sem câmera ao vivo): lê o nome de uma carta por foto
+async function lerFoto(arquivo) {
+  camStatus("Lendo a foto…");
+  const img = new Image(); img.src = URL.createObjectURL(arquivo); await img.decode();
+  const escala = Math.min(1, 1600 / img.naturalWidth), c = document.createElement("canvas");
+  c.width = Math.round(img.naturalWidth * escala); c.height = Math.round(img.naturalHeight * escala);
+  c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+  URL.revokeObjectURL(img.src);
+  // 1º: tenta achar a mão inteira na foto (as 5 cartas de uma vez)
+  const m = acharMaoNaFoto(c);
+  if (m) {
+    camStatus("Achei a mão na foto. Reconhecendo as 5 cartas…");
+    $("#cam-slots").hidden = false;
+    CAM.slots.forEach((s) => { if (s.fixa === undefined) { s.top = []; s.seguidas = 1; } });
+    await escanearArtes(m, true);
+    CAM.slots.forEach((s) => { s.seguidas = 2; });
+    const certas = CAM.slots.filter((s) => situacao(s) === "certa").length;
+    const diferentes = new Set(CAM.slots.filter((s) => s.top[0]?.[0] >= 0.45).map((s) => s.top[0][1])).size;
+    if (certas < 2 && diferentes < 3) {   // não parecia a mão do duelo (ex.: foto da lista de cartas)
+      CAM.slots.forEach((s) => { if (s.fixa === undefined) s.top = []; });
+      desenharSlots();
+      return lerNomeDaFoto(c);
+    }
+    CAM.slots.forEach((s) => { s.seguidas = 2; });   // numa foto não há "repetição": vale a leitura única
+    await lerBarra(m, true).catch(() => {});
+    desenharSlots();
+    const duvidas = CAM.slots.filter((s) => situacao(s) === "duvida").length;
+    return camStatus(duvidas ? `Pronto! ${duvidas} espaço(s) com “?”: toque para confirmar a carta.` : "✔ Mão reconhecida! Confira e toque em “Usar”.", duvidas ? "" : "ok");
+  }
+  return lerNomeDaFoto(c);
 }
+// Lê só o nome da carta em destaque (uma carta por foto)
+async function lerNomeDaFoto(c) {
+  camStatus("Lendo o nome da carta…");
+  const texto = await lerTexto(c, "11");
+  let melhor = null;
+  for (const linha of texto.split(/\n+/)) { const a = acharCarta(linha); if (a && (!melhor || a.d < melhor.d)) melhor = a; }
+  if (!melhor) return camStatus("Não achei o nome de nenhuma carta nessa foto. Tente mais de perto, com a barra do nome bem visível.", "erro");
+  const livre = CAM.slots.find((s) => s.fixa === undefined);
+  if (!livre) return camStatus("Já tenho 5 cartas. Toque em “Usar”.", "ok");
+  livre.fixa = melhor.c.n; livre.pelaBarra = true;
+  $("#cam-slots").hidden = false;
+  desenharSlots();
+  camStatus(`✔ Li: ${melhor.c.nome}. Tire a foto da próxima carta.`, "ok");
+}
+
+function pararStream() { CAM.stream?.getTracks().forEach((t) => t.stop()); CAM.stream = null; }
+function fecharCamera() { CAM.aberta = false; pararStream(); $("#cam")?.remove(); document.body.classList.remove("sem-rolagem"); }
 
 document.addEventListener("click", (e) => {
   const t = e.target.closest("button"); if (!t || !t.closest("#cam") && t.id !== "camera") return;
   if (t.id === "camera") abrirCamera();
   else if (t.id === "cam-fechar") fecharCamera();
-  else if (t.id === "cam-recomecar") { CAM.achadas = []; CAM.ultimaAdd = null; desenharAchadas(); camStatus("Lista limpa. Comece pela primeira carta da mão."); }
-  else if (t.dataset.camTirar) { CAM.achadas.splice(Number(t.dataset.camTirar), 1); CAM.ultimaAdd = null; desenharAchadas(); }
-  else if (t.dataset.camDup) { if (CAM.achadas.length < TAM_MAO) { CAM.achadas.splice(Number(t.dataset.camDup) + 1, 0, CAM.achadas[Number(t.dataset.camDup)]); desenharAchadas(); } }
-  else if (t.id === "cam-usar" && CAM.achadas.length) {
-    const novas = CAM.achadas.slice(0, TAM_MAO);
+  else if (t.id === "cam-recomecar") { CAM.slots = slotsNovos(); CAM.ultimoScan = 0; desenharSlots(); camStatus("Recomeçando a leitura…"); }
+  else if (t.dataset.camSlot) escolherSlot(Number(t.dataset.camSlot));
+  else if (t.dataset.camPor) {
+    t.closest(".cam-escolha").remove();
+    if (t.dataset.camPor !== "x") { const [k, n] = t.dataset.camPor.split(":").map(Number); Object.assign(CAM.slots[k], { fixa: n, pelaBarra: false }); desenharSlots(); }
+  } else if (t.id === "cam-usar") {
+    const novas = CAM.slots.map(cartaDoSlot).filter(Boolean);
+    if (!novas.length) return;
     fecharCamera();
     mudar(() => { estado.mao = novas; });
     avisar(`Mão atualizada com ${novas.length} carta(s) lidas pela câmera.`);

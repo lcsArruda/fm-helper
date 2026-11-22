@@ -190,8 +190,7 @@ body.sem-rolagem { overflow: hidden; }
 .cam-video video { width: 100%; height: 100%; object-fit: cover; display: block; }
 .cam-guia { position: absolute; left: 3%; right: 3%; top: 50%; transform: translateY(-50%);
   border: 2px solid var(--ouro); border-radius: 8px; box-shadow: 0 0 0 999px rgba(0,0,0,.45); }
-.cam-guia i { position: absolute; border: 1.5px dashed rgba(240,196,106,.85); border-radius: 4px; }
-.cam-guia i.g-barra { border-color: rgba(255,255,255,.8); }
+.cam-achou { position: absolute; border: 2.5px solid var(--verde); border-radius: 6px; pointer-events: none; box-shadow: 0 0 8px rgba(0,0,0,.6); }
 .cam-legenda { position: absolute; left: 0; right: 0; top: 8px; text-align: center; font-size: 12.5px; color: #fff; text-shadow: 0 1px 3px #000; }
 .cam-slots { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
 .cam-slot { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 5px 3px 6px; border-radius: 10px; position: relative;
@@ -1140,7 +1139,8 @@ function situacao(s) {   // "fixa" (você escolheu ou o nome confirmou) | "certa
   if (s.fixa !== undefined) return s.fixa ? "fixa" : "vazio";
   if (!s.top.length) return "lendo";
   const [a, b] = s.top;
-  if (a[0] >= 0.42 && (!b || a[0] - b[0] >= 0.06) && s.seguidas >= 2) return "certa";
+  // só pela imagem, exige bastante certeza (algumas artes do jogo são diferentes das imagens do app)
+  if (a[0] >= 0.58 && (!b || a[0] - b[0] >= 0.1) && s.seguidas >= 2) return "certa";
   return "duvida";
 }
 function cartaDoSlot(s) { const st = situacao(s); return st === "fixa" ? s.fixa : st === "certa" ? s.top[0][1] : null; }
@@ -1200,7 +1200,11 @@ function alinhar(fonte, m) {
     } else y++;
   }
   if (!faixa) return null;
-  const s1 = s0 * (faixa.b - faixa.t) / altEsp;
+  // dentro da barra tem texto e ícones claros (uma faixa preta qualquer, como a borda da TV, não tem)
+  let claros = 0, nc = 0;
+  for (let y = faixa.t; y < faixa.b; y++) for (let x = Math.max(0, Math.round(fx(260))); x < Math.min(W, Math.round(fx(1200))); x++) { nc++; if (lum[y * W + x] > 150) claros++; }
+  if (claros / Math.max(1, nc) < 0.015 || claros / Math.max(1, nc) > 0.45) return null;
+  const s1 = s0 * (faixa.b - faixa.t) / altEsp;   // escala vertical (a horizontal muda conforme a TV: 4:3 ou esticada)
   // 2) bordas das cartas: perfil de contraste horizontal na altura das cartas
   const P = new Float32Array(W);
   for (let x = 1; x < W - 1; x++) {
@@ -1217,13 +1221,45 @@ function alinhar(fonte, m) {
   for (let x = 0; x < W; x++) if (x < xa || x > xb) P[x] = 0;
   const Pm = new Float32Array(W); for (let x = 1; x < W - 1; x++) Pm[x] = Math.max(P[x - 1], P[x], P[x + 1]);
   const xm = fx(MOD.x0); let ganha = null;
-  for (let s = s1 * 0.9; s <= s1 * 1.1; s += s1 * 0.01) for (let dx = -W * 0.14; dx <= W * 0.14; dx++) {
+  for (let s = s1 * 0.66; s <= s1 * 1.12; s += s1 * 0.01) for (let dx = -W * 0.22; dx <= W * 0.22; dx++) {
     let sc = 0; for (const X of MOD.bordas) { const x = Math.round(xm + dx + (X - MOD.x0) * s / q); if (x > 0 && x < W) sc += Pm[x]; }
     if (!ganha || sc > ganha.sc) ganha = { sc, s, dx };
   }
+  // As bordas se repetem a cada carta: confere se não "escorregou" uma carta para o lado.
+  // Nas cartas o painel de ATK/DEF é claro; entre elas é pedra mais escura.
+  const padrao = (dx, s) => {
+    const media = (X0, X1) => { let t = 0, n = 0;
+      for (let Y = 520; Y < 552; Y += 4) { const y = Math.round(faixa.t + (Y - MOD.barra[0]) * s1 / q); if (y < 0 || y >= H) continue;
+        for (let X = X0; X < X1; X += 4) { const x = Math.round(xm + dx + (X - MOD.x0) * s / q); if (x < 0 || x >= W) { t += 0; n++; continue; } t += lum[y * W + x]; n++; } }
+      return n ? t / n : 0; };
+    let menor = 1e9, vaos = 0;
+    for (let k = 0; k < 5; k++) menor = Math.min(menor, media(MOD.bordas[2 * k] + 12, MOD.bordas[2 * k + 1] - 12));
+    for (let k = 0; k < 4; k++) vaos += media(MOD.bordas[2 * k + 1] + 8, MOD.bordas[2 * k + 2] - 8) / 4;
+    return menor - vaos;
+  };
+  const periodo = 205;
+  let escolha = ganha, melhorPadrao = padrao(ganha.dx, ganha.s);
+  for (const k of [-2, -1, 1, 2]) {
+    const dx = ganha.dx + k * periodo * ganha.s / q; let sc = 0;
+    for (const X of MOD.bordas) { const x = Math.round(xm + dx + (X - MOD.x0) * ganha.s / q); if (x > 0 && x < W) sc += Pm[x]; }
+    const p = padrao(dx, ganha.s);
+    if (sc > ganha.sc * 0.6 && p > melhorPadrao + 8) { melhorPadrao = p; escolha = { sc, s: ganha.s, dx }; }
+  }
+  ganha = escolha;
   const s = ganha.s;
   let media = 0; for (let x = 0; x < W; x++) media += P[x]; media /= W;
-  return { fonte, nota: ganha.sc / (media * MOD.bordas.length + 1), x: ax + (xm + ganha.dx) * q, y: ay + faixa.t * q - (MOD.barra[0] - MOD.y0) * s, w: MOD.larg * s, h: MOD.alt * s };
+  return { fonte, nota: ganha.sc / (media * MOD.bordas.length + 1), x: ax + (xm + ganha.dx) * q, y: ay + faixa.t * q - (MOD.barra[0] - MOD.y0) * s1, w: MOD.larg * s, h: MOD.alt * s1 };
+}
+
+// Contorno verde na tela mostrando onde o app achou a mão
+function mostrarAchou(a) {
+  const el = $("#cam-achou"), v = $("#cam-v");
+  if (!el || !v || !v.videoWidth) return;
+  if (!a) { el.hidden = true; return; }
+  const rv = v.getBoundingClientRect(), s = Math.max(rv.width / v.videoWidth, rv.height / v.videoHeight);
+  const ox = (rv.width - v.videoWidth * s) / 2, oy = (rv.height - v.videoHeight * s) / 2;
+  Object.assign(el.style, { left: ox + a.x * s + "px", top: oy + a.y * s + "px", width: a.w * s + "px", height: a.h * s + "px" });
+  el.hidden = false;
 }
 
 // Congela um quadro do vídeo (todas as 5 cartas vêm do mesmo instante) e encaixa a mira nele
@@ -1236,20 +1272,45 @@ function quadroAlinhado(m) {
     QUADRO.getContext("2d").drawImage(v, 0, 0);
     m = { ...m, fonte: QUADRO };
   }
-  const a = alinhar(m.fonte, m);
+  const a = encaixar(m.fonte, m);
   CAM.encaixe = !!a;
+  if (a) CAM.mao = { ...a, quando: Date.now() };
+  mostrarAchou(a);
   return a || m;
 }
 
+// Várias tentativas de encaixe; fica com a posição que mais se repete (votação)
+function votar(resultados, minimo) {
+  const grupos = [];
+  for (const a of resultados) {
+    const g = grupos.find((g) => Math.abs(g[0].x - a.x) < g[0].w * 0.03 && Math.abs(g[0].y - a.y) < g[0].h * 0.06 && Math.abs(g[0].w - a.w) < g[0].w * 0.04);
+    if (g) g.push(a); else grupos.push([a]);
+  }
+  grupos.sort((a, b) => b.length - a.length || Math.max(...b.map((x) => x.nota)) - Math.max(...a.map((x) => x.nota)));
+  const g = grupos[0];
+  if (!g || g.length < minimo) return null;
+  const med = (k) => g.reduce((s, a) => s + a[k], 0) / g.length;
+  return { fonte: g[0].fonte, x: med("x"), y: med("y"), w: med("w"), h: med("h"), votos: g.length };
+}
+// Ao vivo: a mão pode ocupar só parte do quadro dourado (de longe) e a TV pode estar em 4:3 ou esticada
+function encaixar(fonte, m) {
+  const res = [], cx = m.x + m.w / 2, cy = m.y + m.h / 2;
+  for (const f of [1, 0.85, 0.7, 0.6]) for (const [ox, oy] of [[0, 0], [0.04, 0.06], [-0.04, -0.06]]) {
+    const w = m.w * f, h = m.h * f;
+    const a = alinhar(fonte, { fonte, x: cx + m.w * ox - w / 2, y: cy + m.h * oy - h / 2, w, h });
+    if (a) res.push(a);
+  }
+  return votar(res, 3);
+}
 // Numa foto inteira: procura onde está a mão (testa vários tamanhos e posições da mira)
 function acharMaoNaFoto(c) {
-  let melhor = null;
-  for (let fw = 0.45; fw <= 1.0; fw += 0.08) for (const fx of [0.42, 0.5, 0.58]) for (let fy = 0.1; fy <= 0.92; fy += 0.035) {
+  const res = [];
+  for (let fw = 0.35; fw <= 1.0; fw += 0.08) for (const fx of [0.42, 0.5, 0.58]) for (let fy = 0.08; fy <= 0.94; fy += 0.03) {
     const w = c.width * fw, h = w * MOD.alt / MOD.larg;
     const a = alinhar(c, { fonte: c, x: c.width * fx - w / 2, y: c.height * fy - h / 2, w, h });
-    if (a && (!melhor || a.nota > melhor.nota)) melhor = a;
+    if (a) res.push(a);
   }
-  return melhor && melhor.nota > 1.6 ? melhor : null;
+  return votar(res, 4);
 }
 
 async function escanearArtes(m, foto = false) {
@@ -1268,9 +1329,11 @@ async function escanearArtes(m, foto = false) {
 }
 
 // Nome na barra -> confirma a carta no espaço onde a arte mais combina com ela
-function confirmarPelaBarra(n) {
+function confirmarPelaBarra(n, cursor = -1) {
   let melhor = null;
-  CAM.slots.forEach((s, k) => {
+  // se deu para ver a setinha do cursor, a carta é a daquele espaço
+  if (cursor >= 0 && !(CAM.slots[cursor].fixa !== undefined && !CAM.slots[cursor].pelaBarra)) melhor = { k: cursor };
+  else CAM.slots.forEach((s, k) => {
     if (s.fixa !== undefined && !s.pelaBarra) return;   // você já escolheu esse espaço
     const pos = s.top.findIndex(([, m]) => m === n);
     if (pos < 0) return;
@@ -1289,15 +1352,37 @@ function confirmarPelaBarra(n) {
 }
 
 async function lerBarra(m, foto = false) {
-  m = alinhar(m.fonte, m) || m;
+  // usa a posição da mão achada no último encaixe (vale por uns segundos)
+  if (!foto && CAM.mao && Date.now() - CAM.mao.quando < 4000) m = { ...CAM.mao, fonte: m.fonte };
   const B = GUIA.barra;
   const canvas = prepararRecorte(m.fonte, m.x + m.w * B.u0, m.y + m.h * B.v0, m.w * (B.u1 - B.u0), m.h * (B.v1 - B.v0));
+  const cursor = slotDoCursor(m.fonte, m);   // no mesmo instante da foto da barra
   const texto = await lerTexto(canvas, "6");
   let melhor = null;
   for (const linha of texto.split(/\n+/)) { const a = acharCarta(linha); if (a && (!melhor || a.d < melhor.d)) melhor = a; }
   if (!melhor) { CAM.candidato = null; CAM.contagem = 0; return; }
-  if (melhor.c.n === CAM.candidato) CAM.contagem++; else { CAM.candidato = melhor.c.n; CAM.contagem = 1; }
-  if (CAM.contagem === 2 || foto) confirmarPelaBarra(melhor.c.n);
+  const chave = melhor.c.n + ":" + cursor;
+  if (chave === CAM.candidato) CAM.contagem++; else { CAM.candidato = chave; CAM.contagem = 1; }
+  if (CAM.contagem === 2 || foto) confirmarPelaBarra(melhor.c.n, cursor);
+}
+
+// Em qual espaço está o cursor do jogo: a setinha vermelha fica no vão à esquerda da carta escolhida
+const VAOS = [[205, 262], [432, 492], [648, 702], [848, 902], [1042, 1092]];   // em coordenadas da foto-modelo
+let CUR_CV = null;
+function slotDoCursor(fonte, m) {
+  if (!CUR_CV) CUR_CV = document.createElement("canvas");
+  const sx = m.w / MOD.larg, sy = m.h / MOD.alt, conta = [];
+  for (const [a, b] of VAOS) {
+    const x = m.x + (a - MOD.x0) * sx, y = m.y + (505 - MOD.y0) * sy, w = (b - a) * sx, h = 55 * sy;
+    CUR_CV.width = 16; CUR_CV.height = 16;
+    const g = CUR_CV.getContext("2d", { willReadFrequently: true });
+    g.clearRect(0, 0, 16, 16); g.drawImage(fonte, x, y, w, h, 0, 0, 16, 16);
+    const d = g.getImageData(0, 0, 16, 16).data; let n = 0;
+    for (let i = 0; i < d.length; i += 4) if (d[i] > 130 && d[i] > d[i + 1] * 2 && d[i] > d[i + 2] * 1.8) n++;
+    conta.push(n);
+  }
+  const ord = [...conta].sort((p, q) => q - p);
+  return ord[0] >= 3 && ord[0] >= ord[1] * 2 ? conta.indexOf(ord[0]) : -1;
 }
 
 async function ciclo() {
@@ -1341,13 +1426,12 @@ async function abrirCamera() {
   el.innerHTML = `
     <div class="cam-topo"><b>Ler a mão pela câmera</b><button id="cam-fechar">✕ Fechar</button></div>
     <div class="cam-video"><video id="cam-v" playsinline muted autoplay></video>
-      <div class="cam-guia" id="cam-guia" style="aspect-ratio:${GUIA.aspecto}">
-        ${GUIA.cartas.map(([u0, u1]) => `<i class="g-carta" style="left:${u0 * 100}%;width:${(u1 - u0) * 100}%;top:2%;height:64%"></i>`).join("")}
-        <i class="g-barra" style="left:${GUIA.barra.u0 * 100}%;width:${(GUIA.barra.u1 - GUIA.barra.u0) * 100}%;top:${GUIA.barra.v0 * 100}%;height:${(GUIA.barra.v1 - GUIA.barra.v0) * 100}%"></i>
-      </div><span class="cam-legenda">Encaixe as 5 cartas e a barra do nome nos quadros</span></div>
+      <div class="cam-guia" id="cam-guia" style="aspect-ratio:3.4"></div>
+      <div class="cam-achou" id="cam-achou" hidden></div>
+      <span class="cam-legenda">Deixe a mão (5 cartas + barra do nome) dentro do quadro — não precisa encaixar certinho</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="cam-slots" id="cam-slots"></div>
-    <p class="cam-dica">Com “?” o app ficou em dúvida: passe o cursor do jogo nessa carta (ele confirma pelo nome) ou toque no espaço para escolher.</p>
+    <p class="cam-dica">Com “?” o app ficou em dúvida: passe o cursor do jogo nessa carta (ele confirma pelo nome) ou toque no espaço para escolher. <span style="opacity:.6">(versão 3)</span></p>
     <label class="cam-foto" id="cam-foto" hidden>📷 Tirar foto da mão<input type="file" accept="image/*" capture="environment" id="cam-arquivo" hidden></label>
     <div class="cam-acoes"><button id="cam-recomecar">Recomeçar</button><button class="principal" id="cam-usar" disabled>Usar estas cartas</button></div>`;
   document.body.append(el);
@@ -1363,7 +1447,7 @@ async function abrirCamera() {
     const v = $("#cam-v"); v.srcObject = CAM.stream; await v.play().catch(() => {});
     camStatus("Preparando o reconhecimento… (só demora na primeira vez)");
     await prontos;
-    camStatus("Aponte para a sua mão: as 5 cartas nos quadros de cima e a barra do nome no de baixo.");
+    camStatus("Aponte para a sua mão. Se estiver longe, chegue mais perto ou dê zoom até a mão ocupar quase todo o quadro dourado.");
     ciclo();
   } catch (e) {
     $(".cam-video").hidden = true; $("#cam-slots").hidden = true; $(".cam-dica").hidden = true;

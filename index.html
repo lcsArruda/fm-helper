@@ -1478,7 +1478,7 @@ async function abrirCamera() {
       <span class="cam-legenda">Aponte o quadro para a barra preta com o nome da carta</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="cam-slots" id="cam-slots"></div>
-    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 12)</span></p>
+    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 13)</span></p>
     <label class="cam-foto secundario" id="cam-foto">📷 Ou tirar uma foto da mão<input type="file" accept="image/*" capture="environment" id="cam-arquivo" hidden></label>
     <div class="cam-acoes"><button id="cam-recomecar">Recomeçar</button><button class="principal" id="cam-usar" disabled>Usar estas cartas</button></div>`;
   document.body.append(el);
@@ -1551,7 +1551,7 @@ async function lerNomeDaFoto(c) {
 }
 
 function pararStream() { CAM.stream?.getTracks().forEach((t) => t.stop()); CAM.stream = null; }
-function fecharCamera() { CAM.aberta = false; pararStream(); $("#cam")?.remove(); document.body.classList.remove("sem-rolagem"); }
+function fecharCamera() { if (LB.fotosMudou) guardarLB(true); CAM.aberta = false; pararStream(); $("#cam")?.remove(); document.body.classList.remove("sem-rolagem"); }
 
 document.addEventListener("click", (e) => {
   const t = e.target.closest("button"); if (!t || !t.closest("#cam") && t.id !== "camera") return;
@@ -1992,24 +1992,27 @@ async function lerQuadroBau(fonte, leitor) {
   const c = (LB.cvGrande ||= document.createElement("canvas")); c.width = W; c.height = H;
   const g = c.getContext("2d", { willReadFrequently: true }); g.drawImage(fonte, 0, 0, W, H);
   // recorta o nome de cada linha e empilha tudo numa imagem só (uma leitura por quadro = mais rápido)
-  const partes = linhas.map((L) => {
-    const h = L.passo * 0.92, yc = (L.y0 + L.y1) / 2, x = L.x0 - 7.8 * L.bw, x2 = L.x0 - 3.1 * L.bw;
-    const r = prepararRecorte(c, x, yc - h / 2, x2 - x, h, LB.altLinha);
-    const k = document.createElement("canvas"); k.width = r.width; k.height = r.height; k.getContext("2d").drawImage(r, 0, 0); return k;
+  // (cada leitor reaproveita as suas imagens: criar imagens novas a cada quadro pesa no celular)
+  const cv = leitor || (LB.cvSo ||= {});
+  const gap = 20, tam = linhas.map((L) => {
+    const h = L.passo * 0.92, x = L.x0 - 7.8 * L.bw, w = 4.7 * L.bw, e = Math.max(1, Math.min(4, LB.altLinha / h, 2400 / w));
+    return { x, y: (L.y0 + L.y1) / 2 - h / 2, w, h, W: Math.round(w * e), H: Math.round(h * e) };
   });
-  const gap = 20, larg = Math.max(...partes.map((p) => p.width)) + 40, alt = partes.reduce((s, p) => s + p.height + gap, gap);
-  const pilha = document.createElement("canvas"); pilha.width = larg; pilha.height = alt;
+  const larg = Math.max(...tam.map((t) => t.W)) + 40, alt = tam.reduce((s, t) => s + t.H + gap, gap);
+  const pilha = (cv.pilha ||= document.createElement("canvas")); pilha.width = larg; pilha.height = alt;
   const pg = pilha.getContext("2d"); pg.fillStyle = "#fff"; pg.fillRect(0, 0, larg, alt);
-  let y = gap; for (const p of partes) { pg.drawImage(p, 20, y); y += p.height + gap; }
-  // antes de esperar a leitura (a imagem grande é reaproveitada): números das caixas e a foto de cada linha
+  let y = gap; for (const t of tam) { pg.drawImage(prepararRecorte(c, t.x, t.y, t.w, t.h, LB.altLinha), 20, y); y += t.H + gap; }
+  // antes de esperar a leitura (a imagem grande é reaproveitada): números das caixas e a foto de cada linha (numa tira só)
   const nums = linhas.map((L) => numerosDaLinha(g, L));
-  const fotos = linhas.map((L) => {
-    const x = L.x0 - 7.9 * L.bw, w = 10.3 * L.bw, h = L.passo, yy = (L.y0 + L.y1) / 2 - h / 2, alt2 = 44;
-    const k = document.createElement("canvas"); k.height = alt2; k.width = Math.round(w * alt2 / h);
-    const kg = k.getContext("2d"); kg.imageSmoothingQuality = "high"; kg.drawImage(c, x, yy, w, h, 0, 0, k.width, k.height); return k;
-  });
-  // de vez em quando, lê também o total do baú no topo da tela ("CHEST 210")
-  const topo = linhas[0], lerTopo = leitor && (LB.nq = (LB.nq || 0) + 1) % 5 === 1;
+  const AF = 44;
+  const tira = (cv.tira ||= document.createElement("canvas"));
+  const largF = Math.round(Math.max(...linhas.map((L) => 10.3 * L.bw * AF / L.passo)));
+  tira.width = largF; tira.height = AF * linhas.length;
+  const tg = tira.getContext("2d"); tg.imageSmoothingQuality = "high";
+  linhas.forEach((L, i) => { const h = L.passo, w = 10.3 * L.bw; tg.drawImage(c, L.x0 - 7.9 * L.bw, (L.y0 + L.y1) / 2 - h / 2, w, h, 0, i * AF, Math.round(w * AF / h), AF); });
+  // de vez em quando, lê também o total do baú no topo da tela ("CHEST 210"); depois de confirmado, bem menos
+  const conf = (LB.topo[maisVotado(LB.topo)] || 0) >= 3;
+  const topo = linhas[0], lerTopo = leitor && (LB.nq = (LB.nq || 0) + 1) % (conf ? 25 : 5) === 1;
   const cvTopo = lerTopo ? comMargem(prepararRecorte(c, topo.x0 - 7.55 * topo.bw, topo.y0 - 0.95 * topo.passo, 1.2 * topo.bw, 0.6 * topo.passo, 80)) : null;
   const textos = (await (leitor ? leitor.ler(pilha, "6") : lerTexto(pilha, "6"))).split(/\n+/).filter((s) => s.trim());
   let total = null;
@@ -2018,7 +2021,14 @@ async function lerQuadroBau(fonte, leitor) {
   if (textos.length === linhas.length) {   // senão não dá para casar texto com linha
     linhas.forEach((L, i) => {
       const a = acharNaLista(textos[i]); if (!a) return;
-      cartas.push({ n: a.c.n, d: a.d, bau: nums[i]?.bau ?? null, deck: nums[i]?.deck ?? null, foto: fotos[i] });
+      // foto: só quando a carta ainda não tem uma (ou para trocar por uma mais recente na 3ª vez que aparece)
+      const x = LB.cartas.get(a.c.n); let foto = null;
+      if (!LB.fotos.has(a.c.n) || x?.vistas === 2) {
+        const f = (LB.cvFoto ||= document.createElement("canvas")); f.width = largF; f.height = AF;
+        f.getContext("2d").drawImage(tira, 0, i * AF, largF, AF, 0, 0, largF, AF);
+        try { foto = f.toDataURL("image/jpeg", 0.7); } catch (e) {}
+      }
+      cartas.push({ n: a.c.n, d: a.d, bau: nums[i]?.bau ?? null, deck: nums[i]?.deck ?? null, foto });
     });
   }
   return { linhas: linhas.length, cartas, total };
@@ -2027,9 +2037,10 @@ async function lerQuadroBau(fonte, leitor) {
 const DECK_JOGO = 40;   // no jogo o deck tem sempre 40 cartas
 const LB = { cartas: new Map(), ordem: [], ultimoAviso: 0, altLinha: 70, topo: {}, fotos: new Map() };
 const LB_CHAVE = "fmh-leitura-bau-v1", LB_FOTOS = "fmh-leitura-fotos-v1";
-function guardarLB() {
+function guardarLB(tudo) {
   try { localStorage.setItem(LB_CHAVE, JSON.stringify({ ordem: LB.ordem, cartas: [...LB.cartas], topo: LB.topo })); } catch (e) {}
-  if (LB.fotosMudou) { LB.fotosMudou = false; try { localStorage.setItem(LB_FOTOS, JSON.stringify([...LB.fotos])); } catch (e) {} }
+  // as fotos pesam: guarda no máximo a cada 4 segundos enquanto lê (e sempre ao sair da câmera)
+  if (LB.fotosMudou && (tudo || Date.now() - (LB.tFotos || 0) > 4000)) { LB.fotosMudou = false; LB.tFotos = Date.now(); try { localStorage.setItem(LB_FOTOS, JSON.stringify([...LB.fotos])); } catch (e) {} }
 }
 function carregarLB() {
   LB.cartas = new Map(); LB.ordem = []; LB.topo = {}; LB.fotos = new Map();
@@ -2065,7 +2076,7 @@ function juntarQuadro(lidas, total) {
     if (bau !== null) x.vb[bau] = (x.vb[bau] || 0) + 1;
     if (deck !== null) x.vd[deck] = (x.vd[deck] || 0) + 1;
     // guarda a foto da linha (a 1ª e depois uma mais recente, que costuma estar mais no meio da tela)
-    if (foto && (!LB.fotos.has(n) || x.vistas === 3)) { try { LB.fotos.set(n, foto.toDataURL("image/jpeg", 0.7)); LB.fotosMudou = true; } catch (e) {} }
+    if (foto) { LB.fotos.set(n, foto); LB.fotosMudou = true; }
   }
   return novas;
 }
@@ -2089,7 +2100,7 @@ async function abrirLeitorBau() {
       <span class="cam-legenda">Mostre a TV inteira, com a lista do baú</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="bloco"><span class="rot">Lidas: <b id="lb-n">0</b> cartas diferentes</span><div id="lb-tot" style="font-size:14px"></div><div id="lb-ultimas" class="suave">—</div></div>
-    <p class="cam-dica">No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 12)</span></p>
+    <p class="cam-dica">No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 13)</span></p>
     <div class="cam-acoes"><button id="lb-recomecar">Recomeçar</button><button class="principal" id="lb-revisar" disabled>Revisar e salvar</button></div>`;
   document.body.append(el);
   document.body.classList.add("sem-rolagem");
@@ -2124,12 +2135,13 @@ async function cicloBau() {
     livre.livre = false;
     lerQuadroBau(v, livre).then((r) => {
       if (!CAM.aberta || !$("#lb-n")) return;
+      const ag = Date.now(); LB.tq = (LB.tq || []).filter((t) => ag - t < 5000); LB.tq.push(ag);
       if (!r) { if (Date.now() - LB.ultimoAviso > 2500) camStatus("Não achei a lista. Mostre a TV inteira, com o baú (CHEST) aberto."); }
       else if (r.cartas.length || r.total) {
         const novas = juntarQuadro(r.cartas, r.total);
         guardarLB(); desenharLidasBau();
         if (novas) { try { navigator.vibrate?.(40); } catch (e) {} }
-        camStatus(`Lendo… ${cartasConfirmadas().length} carta(s) diferentes. Pode continuar descendo.`, "ok"); LB.ultimoAviso = Date.now();
+        camStatus(`Lendo… ${cartasConfirmadas().length} carta(s) diferentes. Pode continuar descendo. (${(LB.tq.length / 5).toFixed(1).replace(".", ",")} leituras por segundo)`, "ok"); LB.ultimoAviso = Date.now();
       }
     }).catch(() => {}).finally(() => { livre.livre = true; });
   }

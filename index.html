@@ -1475,7 +1475,7 @@ async function abrirCamera() {
       <span class="cam-legenda">Aponte o quadro para a barra preta com o nome da carta</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="cam-slots" id="cam-slots"></div>
-    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 8)</span></p>
+    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 9)</span></p>
     <label class="cam-foto secundario" id="cam-foto">📷 Ou tirar uma foto da mão<input type="file" accept="image/*" capture="environment" id="cam-arquivo" hidden></label>
     <div class="cam-acoes"><button id="cam-recomecar">Recomeçar</button><button class="principal" id="cam-usar" disabled>Usar estas cartas</button></div>`;
   document.body.append(el);
@@ -1827,7 +1827,7 @@ let CUSTO_FONTE = null;
 function distFonte(a, b) {
   if (!CUSTO_FONTE) {
     CUSTO_FONTE = new Float32Array(128 * 128).fill(1);
-    for (const p of ["li", "ft", "l1", "i1", "o0", "ec", "nh", "mn", "gq", "yv", "ao", "ce", "hb", "il", "rt", "uv", "ij"]) {
+    for (const p of ["li", "ft", "l1", "i1", "o0", "ec", "nh", "mn", "gq", "yv", "ao", "ce", "hb", "il", "rt", "uv", "ij", "rl", "tl", "rf"]) {
       CUSTO_FONTE[p.charCodeAt(0) * 128 + p.charCodeAt(1)] = 0.35; CUSTO_FONTE[p.charCodeAt(1) * 128 + p.charCodeAt(0)] = 0.35; }
   }
   const m = a.length, n = b.length; let prev = new Float32Array(n + 1), cur = new Float32Array(n + 1);
@@ -1920,7 +1920,25 @@ function numerosDaLinha(g, L) {
   return { bau: vb ? classificarDig(vb, ex.bau) : null, deck: classificarDig(vd, ex.deck) };
 }
 // 4) Um quadro da câmera: devolve [{ n, bau, deck }]
-async function lerQuadroBau(fonte) {
+// Dois leitores trabalhando ao mesmo tempo (celulares têm vários núcleos): o dobro de quadros por segundo
+function leitoresBau() {
+  if (LB.ws) return LB.ws;
+  LB.ws = (async () => {
+    const lista = [{ ler: (cv, m) => lerTexto(cv, m) }];
+    await carregarLeitor();
+    if ((navigator.hardwareConcurrency || 2) >= 4) {
+      try {
+        const w = await Tesseract.createWorker("eng"); let modo = null;
+        lista.push({ ler: async (cv, m) => { if (modo !== m) { await w.setParameters({ tessedit_pageseg_mode: m }); modo = m; } return (await w.recognize(cv)).data.text; } });
+      } catch (e) {}
+    }
+    lista.forEach((l) => { l.livre = true; });
+    return lista;
+  })();
+  LB.ws.catch(() => { LB.ws = null; });
+  return LB.ws;
+}
+async function lerQuadroBau(fonte, leitor) {
   const W = fonte.videoWidth || fonte.naturalWidth || fonte.width, H = fonte.videoHeight || fonte.naturalHeight || fonte.height;
   if (!W || !H) return null;
   const linhas = acharLinhasBau(fonte, W, H);
@@ -1937,13 +1955,13 @@ async function lerQuadroBau(fonte) {
   const pilha = document.createElement("canvas"); pilha.width = larg; pilha.height = alt;
   const pg = pilha.getContext("2d"); pg.fillStyle = "#fff"; pg.fillRect(0, 0, larg, alt);
   let y = gap; for (const p of partes) { pg.drawImage(p, 20, y); y += p.height + gap; }
-  const textos = (await lerTexto(pilha, "6")).split(/\n+/).filter((s) => s.trim());
+  const nums = linhas.map((L) => numerosDaLinha(g, L));   // antes de esperar a leitura: a imagem grande é reaproveitada
+  const textos = (await (leitor ? leitor.ler(pilha, "6") : lerTexto(pilha, "6"))).split(/\n+/).filter((s) => s.trim());
   if (textos.length !== linhas.length) return { linhas: linhas.length, cartas: [] };   // não deu para casar texto com linha
   const cartas = [];
   linhas.forEach((L, i) => {
     const a = acharNaLista(textos[i]); if (!a) return;
-    const nums = numerosDaLinha(g, L);
-    cartas.push({ n: a.c.n, d: a.d, bau: nums?.bau ?? null, deck: nums?.deck ?? null });
+    cartas.push({ n: a.c.n, d: a.d, bau: nums[i]?.bau ?? null, deck: nums[i]?.deck ?? null });
   });
   return { linhas: linhas.length, cartas };
 }
@@ -1986,7 +2004,7 @@ async function abrirLeitorBau() {
       <span class="cam-legenda">Mostre a TV inteira, com a lista do baú</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="bloco"><span class="rot">Lidas: <b id="lb-n">0</b> cartas diferentes · <span id="lb-tot"></span></span><div id="lb-ultimas" class="suave">—</div></div>
-    <p class="cam-dica">No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois confira os números e corrija com − e + se precisar. <span style="opacity:.6">(versão 8)</span></p>
+    <p class="cam-dica">No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois confira os números e corrija com − e + se precisar. <span style="opacity:.6">(versão 9)</span></p>
     <div class="cam-acoes"><button id="lb-recomecar">Recomeçar</button><button class="principal" id="lb-salvar" disabled>Salvar baú e deck</button></div>`;
   document.body.append(el);
   document.body.classList.add("sem-rolagem");
@@ -2016,11 +2034,12 @@ function desenharLidasBau() {
 }
 async function cicloBau() {
   if (!CAM.aberta || !$("#lb-n")) return;
-  const v = $("#cam-v");
-  if (v && v.videoWidth && !CAM.ocupadoNome) {
-    CAM.ocupadoNome = true;
-    try {
-      const r = await lerQuadroBau(v);
+  const v = $("#cam-v"), ws = await leitoresBau().catch(() => []);
+  const livre = ws.find((w) => w.livre);
+  if (v && v.videoWidth && livre) {
+    livre.livre = false;
+    lerQuadroBau(v, livre).then((r) => {
+      if (!CAM.aberta || !$("#lb-n")) return;
       if (!r) { if (Date.now() - LB.ultimoAviso > 2500) camStatus("Não achei a lista. Mostre a TV inteira, com o baú (CHEST) aberto."); }
       else if (r.cartas.length) {
         const novas = juntarQuadro(r.cartas);
@@ -2028,10 +2047,9 @@ async function cicloBau() {
         if (novas) { try { navigator.vibrate?.(40); } catch (e) {} }
         camStatus(`Lendo… ${cartasConfirmadas().length} carta(s) diferentes. Pode continuar descendo.`, "ok"); LB.ultimoAviso = Date.now();
       }
-    } catch (e) {}
-    CAM.ocupadoNome = false;
+    }).catch(() => {}).finally(() => { livre.livre = true; });
   }
-  setTimeout(cicloBau, 150);
+  setTimeout(cicloBau, 120);
 }
 function salvarBau() {
   const ok = cartasConfirmadas();

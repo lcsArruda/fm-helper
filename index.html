@@ -1594,7 +1594,20 @@ document.addEventListener("change", (e) => {
 // ---------- Minhas cartas: baú, deck atual e sugestões de deck ----------
 const CHAVE_COL = "fmh-colecao-v1", TAM_DECK = 40, MAX_COPIAS = 3;
 let colecao = { bau: {}, deck: {} };   // número -> quantidade (o baú conta TODAS as cópias que você tem, inclusive as do deck)
-let col = { sub: "bau", busca: "", sug: 0 };
+let col = { sub: "bau", busca: "", sug: 0, ordem: "forca", inverter: false };
+try { Object.assign(col, JSON.parse(localStorage.getItem("fmh-col-ordem") || "{}")); } catch (e) {}
+const salvarOrdemCol = () => { try { localStorage.setItem("fmh-col-ordem", JSON.stringify({ ordem: col.ordem, inverter: col.inverter })); } catch (e) {} };
+// as mesmas ordens do menu do jogo (NO., ABC, MAX, ATK, DEF, TYPE)
+const ORDENS_COL = [["forca", "Mais fortes primeiro"], ["numero", "NO. (número)"], ["abc", "ABC (nome)"], ["max", "MAX"], ["atk", "ATK"], ["def", "DEF"], ["tipo", "TYPE (tipo)"]];
+function ordenarCol(ns) {
+  const o = col.ordem;
+  if (o === "numero") ns.sort((a, b) => a - b);
+  else if (o === "forca" || !ORDENS_COL.some(([k]) => k === o)) ns.sort((a, b) => {
+    const x = CARTAS.get(a), y = CARTAS.get(b); return monstro(y) - monstro(x) || y.atk - x.atk || x.nome.localeCompare(y.nome); });
+  else ns.sort((a, b) => (CARTAS.get(a).ordens[o] ?? 99999) - (CARTAS.get(b).ordens[o] ?? 99999) || a - b);
+  if (col.inverter) ns.reverse();
+  return ns;
+}
 function salvarCol() { try { localStorage.setItem(CHAVE_COL, JSON.stringify(colecao)); } catch (e) {} }
 function lerCol() {
   try { const s = JSON.parse(localStorage.getItem(CHAVE_COL) || "null"); if (s && s.bau) colecao = { bau: s.bau, deck: s.deck || {} }; } catch (e) {}
@@ -1701,8 +1714,7 @@ function desenharColecao() {
   let corpo = "";
   if (col.sub === "bau" || col.sub === "deck") {
     const onde = col.sub, o = colecao[onde];
-    const lista = Object.keys(o).map(Number).filter((n) => CARTAS.get(n)).sort((a, b) => {
-      const x = CARTAS.get(a), y = CARTAS.get(b); return monstro(y) - monstro(x) || y.atk - x.atk || x.nome.localeCompare(y.nome); });
+    const lista = ordenarCol(Object.keys(o).map(Number).filter((n) => CARTAS.get(n)));
     corpo = `
       <button class="btn-camera" id="col-camera">📷 Ler baú e deck pela câmera (tela CHEST)</button>
       <section class="busca"><input id="col-busca" type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
@@ -1711,6 +1723,8 @@ function desenharColecao() {
       <p class="suave" style="margin:0">${onde === "bau"
         ? `Você tem <b style="color:var(--ouro-claro)">${nBau}</b> carta(s) (${lista.length} diferentes). ${nDeck ? `${nDeck} estão no deck (🃏).` : ""}`
         : `Seu deck tem <b style="color:var(--ouro-claro)">${nDeck}</b> de ${TAM_DECK} cartas.`}</p>
+      ${lista.length > 1 ? `<div class="opcoes"><select class="select" id="col-ordem" aria-label="Organizar por">${ORDENS_COL.map(([k, tx]) => `<option value="${k}" ${k === col.ordem ? "selected" : ""}>Organizar: ${tx}</option>`).join("")}</select>
+        <label class="alternar"><input type="checkbox" id="col-inverter" ${col.inverter ? "checked" : ""}> Inverter</label></div>` : ""}
       <div class="linhas">${lista.map((n) => linhaCol(n, o[n], `<span class="col-qtd">
           ${onde === "bau" && colecao.deck[n] ? `<span class="chip">🃏 ${colecao.deck[n]} no deck</span>` : ""}
           <button class="btn-icone" data-col-q="${onde}:${n}:-1" aria-label="Tirar uma">−</button>
@@ -2136,6 +2150,8 @@ document.addEventListener("change", (e) => {
   if (e.target.id === "etapa") { hist.ver = Number(e.target.value); hist.alvo = 0; desenharHistoria(); }
   else if (e.target.id === "ordem-deck") { hist.ordem = e.target.value; salvarHist(); desenharHistoria(); }
   else if (e.target.id === "inverter-deck") { hist.inverter = e.target.checked; salvarHist(); desenharHistoria(); }
+  else if (e.target.id === "col-ordem") { col.ordem = e.target.value; salvarOrdemCol(); desenharColecao(); }
+  else if (e.target.id === "col-inverter") { col.inverter = e.target.checked; salvarOrdemCol(); desenharColecao(); }
 });
 let timerFarm;
 document.addEventListener("input", (e) => {

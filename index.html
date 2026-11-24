@@ -1478,7 +1478,7 @@ async function abrirCamera() {
       <span class="cam-legenda">Aponte o quadro para a barra preta com o nome da carta</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="cam-slots" id="cam-slots"></div>
-    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 10)</span></p>
+    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 11)</span></p>
     <label class="cam-foto secundario" id="cam-foto">📷 Ou tirar uma foto da mão<input type="file" accept="image/*" capture="environment" id="cam-arquivo" hidden></label>
     <div class="cam-acoes"><button id="cam-recomecar">Recomeçar</button><button class="principal" id="cam-usar" disabled>Usar estas cartas</button></div>`;
   document.body.append(el);
@@ -2089,7 +2089,7 @@ async function abrirLeitorBau() {
       <span class="cam-legenda">Mostre a TV inteira, com a lista do baú</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="bloco"><span class="rot">Lidas: <b id="lb-n">0</b> cartas diferentes</span><div id="lb-tot" style="font-size:14px"></div><div id="lb-ultimas" class="suave">—</div></div>
-    <p class="cam-dica">No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 10)</span></p>
+    <p class="cam-dica">No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 11)</span></p>
     <div class="cam-acoes"><button id="lb-recomecar">Recomeçar</button><button class="principal" id="lb-revisar" disabled>Revisar e salvar</button></div>`;
   document.body.append(el);
   document.body.classList.add("sem-rolagem");
@@ -2149,19 +2149,23 @@ function abrirRevisao() {
   let el = $("#rev");
   if (!el) { el = document.createElement("div"); el.id = "rev"; el.className = "cam"; document.body.append(el); }
   document.body.classList.add("sem-rolagem");
+  // a lista de "confira" fica fixa enquanto a revisão está aberta: mexer no − e + não tira a carta do lugar
+  LB.revDuv = new Set(cartasConfirmadas().filter((x) => motivoDuvida(x)).map((x) => x.n));
   desenharRevisao();
 }
 function fecharRevisao() { $("#rev")?.remove(); document.body.classList.remove("sem-rolagem"); }
 function desenharRevisao() {
   const el = $("#rev"); if (!el) return;
   const r = resumoContagem();
-  const itens = r.ok.map((x) => ({ ...x, motivo: motivoDuvida(x) }));
-  const duvidas = itens.filter((x) => x.motivo), certas = itens.filter((x) => !x.motivo);
+  const duv = LB.revDuv || new Set();
+  const itens = r.ok.map((x) => ({ ...x, motivo: duv.has(x.n) && !x.conferida ? motivoDuvida({ ...x, conferida: false }) : "" }));
+  const duvidas = itens.filter((x) => duv.has(x.n)), certas = itens.filter((x) => !duv.has(x.n));
+  const faltam = duvidas.filter((x) => x.motivo).length;
   const fora = LB.ordem.filter((n) => LB.cartas.get(n)?.fora);
   const item = (x) => `<div class="bloco rev-item">
       ${LB.fotos.get(x.n) ? `<img class="rev-foto" src="${LB.fotos.get(x.n)}" alt="Foto da linha no jogo">` : `<div class="suave" style="font-size:12.5px">(sem foto)</div>`}
       <div class="rev-linha"><span class="nm">${esc(CARTAS.get(x.n).nome)} <small class="num">#${String(x.n).padStart(3, "0")}</small></span>
-        ${x.motivo ? `<span class="bloq" style="font-size:12.5px">⚠ ${x.motivo}</span>` : ""}</div>
+        ${x.motivo ? `<span class="bloq" style="font-size:12.5px">⚠ ${x.motivo}</span>` : duv.has(x.n) ? `<span class="lib" style="font-size:12.5px">✔ conferida</span>` : ""}</div>
       <div class="col-qtd" style="justify-content:flex-start;flex-wrap:wrap;gap:6px">
         <span class="suave">Baú</span><button class="btn-icone" data-rev="b:${x.n}:-1">−</button><b class="num">${x.bau ?? "?"}</b><button class="btn-icone" data-rev="b:${x.n}:1">+</button>
         <span class="suave" style="margin-left:8px">Deck</span><button class="btn-icone" data-rev="d:${x.n}:-1">−</button><b class="num">${x.deck}</b><button class="btn-icone" data-rev="d:${x.n}:1">+</button>
@@ -2170,8 +2174,8 @@ function desenharRevisao() {
   el.innerHTML = `
     <div class="cam-topo"><b>Revisar a leitura</b><button id="rev-fechar">✕ Fechar</button></div>
     <div class="bloco"><span class="rot">${r.ok.length} cartas diferentes</span><div style="font-size:14px">${r.html}</div>
-      ${r.bate ? `<p style="margin:6px 0 0;color:var(--verde)">Tudo bateu com o jogo.</p>` : `<p class="suave" style="margin:6px 0 0;font-size:12.5px">Compare cada foto com o número ao lado. Se faltar carta, volte para a câmera e passe de novo por onde ela está, ou adicione depois pela busca.</p>`}</div>
-    ${duvidas.length ? `<h3 style="margin:4px 0 0">Confira estas primeiro (${duvidas.length})</h3>${duvidas.map(item).join("")}` : ""}
+      ${r.bate ? `<p style="margin:6px 0 0;color:var(--verde)">Tudo bateu com o jogo.</p>` : `<p class="suave" style="margin:6px 0 0;font-size:12.5px">Compare cada foto com o número ao lado e use − e + até ficar igual (pode tocar quantas vezes precisar; nada é salvo antes de tocar em <b>Salvar baú e deck</b>). Se faltar carta, volte para a câmera e passe de novo por onde ela está, ou adicione depois pela busca.</p>`}</div>
+    ${duvidas.length ? `<h3 style="margin:4px 0 0">Confira estas primeiro (${faltam ? `faltam ${faltam} de ${duvidas.length}` : `todas conferidas`})</h3>${duvidas.map(item).join("")}` : ""}
     ${certas.length ? `<h3 style="margin:4px 0 0">Lidas com segurança (${certas.length})</h3>${certas.map(item).join("")}` : ""}
     ${fora.length ? `<p class="suave" style="font-size:12.5px">Tiradas por você: ${fora.map((n) => `<button class="btn-icone" data-rev="volta:${n}">↩ ${esc(CARTAS.get(n).nome)}</button>`).join(" ")}</p>` : ""}
     <div class="cam-acoes" style="position:sticky;bottom:0;background:var(--fundo);padding-top:8px"><button id="rev-camera">📷 Voltar à câmera</button><button class="principal" id="rev-salvar">Salvar baú e deck</button></div>`;

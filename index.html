@@ -1717,6 +1717,7 @@ function desenharColecao() {
           <button class="btn-icone" data-col-q="${onde}:${n}:1" aria-label="Pôr mais uma">+</button>
           ${onde === "bau" ? `<button class="btn-icone" data-col-q="deck:${n}:1" ${(colecao.deck[n] || 0) >= o[n] ? "disabled" : ""}>+ deck</button>` : ""}</span>`)).join("")
         || `<div class="vazio">${onde === "bau" ? "Nenhuma carta ainda. Use a câmera na lista de cartas do jogo ou adicione pela busca." : "Deck vazio. Leia o deck pela câmera, adicione pela busca ou use uma sugestão."}</div>`}</div>
+      ${lista.length ? `<button class="btn" id="col-enviar" style="align-self:flex-start">📤 Enviar minha lista (texto)</button>` : ""}
       ${lista.length ? `<button class="btn" id="col-limpar" style="align-self:flex-start">🗑 Apagar ${onde === "bau" ? "o baú" : "o deck"}</button>` : ""}`;
   } else {
     if (!nBau) corpo = `<div class="vazio">Primeiro coloque no baú as cartas que você tem (pela câmera ou pela busca). Aí eu monto os melhores decks com elas.</div>`;
@@ -2059,7 +2060,8 @@ document.addEventListener("click", (e) => {
     abrirFolha(`<h3>Usar a sugestão “${esc(s.nome)}” como seu deck?</h3><div class="sub">Seu deck salvo no app (${somaQtd(colecao.deck)} cartas) será trocado. No jogo, você monta o deck do mesmo jeito na tela de deck.</div>
       <button class="principal" data-acao="sim">Usar este deck</button><button data-acao="nao">Cancelar</button>`,
       { sim() { colecao.deck = { ...s.deck }; salvarCol(); col.sub = "deck"; desenharColecao(); avisar("Deck atualizado."); }, nao() {} });
-  } else if (t.id === "col-limpar") {
+  } else if (t.id === "col-enviar") enviarLista();
+  else if (t.id === "col-limpar") {
     const onde = col.sub;
     abrirFolha(`<h3>Apagar ${onde === "bau" ? "o baú inteiro" : "o deck"} do app?</h3><div class="sub">Isso só apaga a lista guardada no app, não mexe no jogo.</div>
       <button class="principal" data-acao="sim">Sim, apagar</button><button data-acao="nao">Cancelar</button>`,
@@ -2069,6 +2071,20 @@ document.addEventListener("click", (e) => {
 document.addEventListener("input", (e) => { if (e.target.id === "col-busca") { col.busca = e.target.value; desenharAchadas(); } });
 
 
+// Lista em texto (para mandar por WhatsApp, e-mail…): número;no baú do jogo;no deck;nome
+function textoDaLista() {
+  const ns = Object.keys(colecao.bau).map(Number).filter((n) => CARTAS.get(n)).sort((a, b) => a - b);
+  const linhas = ns.map((n) => { const tot = colecao.bau[n] || 0, dk = colecao.deck[n] || 0; return `${n};${Math.max(0, tot - dk)};${dk};${CARTAS.get(n).nome}`; });
+  return `FM Helper - minha lista (numero;bau;deck;nome)
+Total: ${somaQtd(colecao.bau)} cartas, ${somaQtd(colecao.deck)} no deck, ${ns.length} diferentes
+` + linhas.join("\n");
+}
+async function enviarLista() {
+  const txt = textoDaLista();
+  try { if (navigator.share) { await navigator.share({ title: "Minha lista de cartas", text: txt }); return; } } catch (e) { if (e && e.name === "AbortError") return; }
+  try { await navigator.clipboard.writeText(txt); avisar("Lista copiada. É só colar onde quiser."); return; } catch (e) {}
+  abrirFolha(`<h3>Sua lista</h3><div class="sub">Copie o texto abaixo.</div><textarea style="width:100%;height:40vh">${esc(txt)}</textarea><button data-acao="nao">Fechar</button>`, { nao() {} });
+}
 // ---------- Eventos ----------
 document.addEventListener("click", (e) => {
   const t = e.target.closest("button"); if (!t) return;

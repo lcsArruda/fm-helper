@@ -225,6 +225,9 @@ body.sem-rolagem { overflow: hidden; }
 .cam-acoes button { flex: 1; padding: 12px; }
 .cam-acoes button.principal { background: var(--ouro); color: #1a1306; border-color: var(--ouro); font-weight: 700; }
 .cam-acoes button:disabled { opacity: .5; }
+.rev-item { display: flex; flex-direction: column; gap: 6px; }
+.rev-foto { width: 100%; max-width: 520px; border-radius: 6px; image-rendering: auto; }
+.rev-linha { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .marca-campo { width: 4px; height: 16px; border-radius: 2px; background: #5b74c7; flex: none; }
 .passos { border-top: 1px solid var(--borda); padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 6px; }
 .passo { display: grid; grid-template-columns: 22px 1fr; gap: 8px; font-size: 13.5px; }
@@ -1475,7 +1478,7 @@ async function abrirCamera() {
       <span class="cam-legenda">Aponte o quadro para a barra preta com o nome da carta</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="cam-slots" id="cam-slots"></div>
-    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 9)</span></p>
+    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 10)</span></p>
     <label class="cam-foto secundario" id="cam-foto">📷 Ou tirar uma foto da mão<input type="file" accept="image/*" capture="environment" id="cam-arquivo" hidden></label>
     <div class="cam-acoes"><button id="cam-recomecar">Recomeçar</button><button class="principal" id="cam-usar" disabled>Usar estas cartas</button></div>`;
   document.body.append(el);
@@ -1614,6 +1617,19 @@ function lerCol() {
 }
 const somaQtd = (o) => Object.values(o).reduce((s, x) => s + x, 0);
 function mudarQtd(onde, n, delta) {
+  // "fora" e "deckj" = os dois números da tela do baú do jogo (guardadas fora do deck / no deck)
+  if (onde === "fora") {
+    const dk = colecao.deck[n] || 0, tot = colecao.bau[n] || 0;
+    if (delta < 0 && tot - dk <= 0) return;
+    const q = tot + delta; if (q > 0) colecao.bau[n] = q; else delete colecao.bau[n];
+    return salvarCol();
+  }
+  if (onde === "deckj") {
+    const dk = colecao.deck[n] || 0; if (delta < 0 && !dk) return;
+    const q = dk + delta; if (q > 0) colecao.deck[n] = q; else delete colecao.deck[n];
+    const tot = (colecao.bau[n] || 0) + delta; if (tot > 0) colecao.bau[n] = tot; else delete colecao.bau[n];
+    return salvarCol();
+  }
   const o = colecao[onde], q = Math.max(0, (o[n] || 0) + delta);
   if (onde === "deck" && delta > 0 && q > (colecao.bau[n] || 0)) colecao.bau[n] = q;   // no deck => você tem
   if (q) o[n] = q; else delete o[n];
@@ -1721,15 +1737,22 @@ function desenharColecao() {
         placeholder="Adicionar carta: nome ou nº" aria-label="Adicionar carta"></section>
       <div id="col-achadas" class="linhas"></div>
       <p class="suave" style="margin:0">${onde === "bau"
-        ? `Você tem <b style="color:var(--ouro-claro)">${nBau}</b> carta(s) (${lista.length} diferentes). ${nDeck ? `${nDeck} estão no deck (🃏).` : ""}`
+        ? `No baú: <b style="color:var(--ouro-claro)">${nBau - nDeck}</b> · No deck: <b style="color:var(--ouro-claro)">${nDeck}</b> · Total: ${nBau} (${lista.length} diferentes).<br><span style="font-size:12.5px">Os dois primeiros devem bater com os números do topo da tela do baú no jogo.</span>`
         : `Seu deck tem <b style="color:var(--ouro-claro)">${nDeck}</b> de ${TAM_DECK} cartas.`}</p>
       ${lista.length > 1 ? `<div class="opcoes"><select class="select" id="col-ordem" aria-label="Organizar por">${ORDENS_COL.map(([k, tx]) => `<option value="${k}" ${k === col.ordem ? "selected" : ""}>Organizar: ${tx}</option>`).join("")}</select>
         <label class="alternar"><input type="checkbox" id="col-inverter" ${col.inverter ? "checked" : ""}> Inverter</label></div>` : ""}
-      <div class="linhas">${lista.map((n) => linhaCol(n, o[n], `<span class="col-qtd">
-          ${onde === "bau" && colecao.deck[n] ? `<span class="chip">🃏 ${colecao.deck[n]} no deck</span>` : ""}
+      <div class="linhas">${lista.map((n) => onde === "bau"
+        ? linhaCol(n, o[n], `<span class="col-qtd"><span class="par-col">Baú</span>
+          <button class="btn-icone" data-col-q="fora:${n}:-1" aria-label="Uma a menos no baú" ${(o[n] || 0) - (colecao.deck[n] || 0) <= 0 ? "disabled" : ""}>−</button>
+          <b class="num">${(o[n] || 0) - (colecao.deck[n] || 0)}</b>
+          <button class="btn-icone" data-col-q="fora:${n}:1" aria-label="Uma a mais no baú">+</button>
+          <span class="par-col" style="margin-left:8px">Deck</span>
+          <button class="btn-icone" data-col-q="deckj:${n}:-1" aria-label="Uma a menos no deck" ${colecao.deck[n] ? "" : "disabled"}>−</button>
+          <b class="num">${colecao.deck[n] || 0}</b>
+          <button class="btn-icone" data-col-q="deckj:${n}:1" aria-label="Uma a mais no deck">+</button></span>`)
+        : linhaCol(n, o[n], `<span class="col-qtd">
           <button class="btn-icone" data-col-q="${onde}:${n}:-1" aria-label="Tirar uma">−</button>
-          <button class="btn-icone" data-col-q="${onde}:${n}:1" aria-label="Pôr mais uma">+</button>
-          ${onde === "bau" ? `<button class="btn-icone" data-col-q="deck:${n}:1" ${(colecao.deck[n] || 0) >= o[n] ? "disabled" : ""}>+ deck</button>` : ""}</span>`)).join("")
+          <button class="btn-icone" data-col-q="${onde}:${n}:1" aria-label="Pôr mais uma">+</button></span>`)).join("")
         || `<div class="vazio">${onde === "bau" ? "Nenhuma carta ainda. Use a câmera na lista de cartas do jogo ou adicione pela busca." : "Deck vazio. Leia o deck pela câmera, adicione pela busca ou use uma sugestão."}</div>`}</div>
       ${lista.length ? `<button class="btn" id="col-enviar" style="align-self:flex-start">📤 Enviar minha lista (texto)</button>` : ""}
       ${lista.length ? `<button class="btn" id="col-limpar" style="align-self:flex-start">🗑 Apagar ${onde === "bau" ? "o baú" : "o deck"}</button>` : ""}`;
@@ -1755,7 +1778,7 @@ function desenharColecao() {
   }
   v.innerHTML = `
     <div class="seletor tres" role="group" aria-label="Minhas cartas">
-      ${[["bau", `Baú <span class="qtd">${nBau}</span>`], ["deck", `Meu deck <span class="qtd">${nDeck}</span>`], ["sug", "Melhores decks"]].map(([k, t]) => `<button data-col-sub="${k}" aria-pressed="${col.sub === k}">${t}</button>`).join("")}
+      ${[["bau", `Baú <span class="qtd">${nBau - nDeck}</span>`], ["deck", `Meu deck <span class="qtd">${nDeck}</span>`], ["sug", "Melhores decks"]].map(([k, t]) => `<button data-col-sub="${k}" aria-pressed="${col.sub === k}">${t}</button>`).join("")}
     </div>${corpo}`;
   if ($("#col-busca")) $("#col-busca").value = col.busca;
   desenharAchadas();
@@ -1933,17 +1956,18 @@ function numerosDaLinha(g, L) {
   const vd = amostrarDig(g, borda + 0.27 * bt, L.y0 + 0.38 * h, 0.42 * bt, h * 0.62);
   return { bau: vb ? classificarDig(vb, ex.bau) : null, deck: classificarDig(vd, ex.deck) };
 }
-// 4) Um quadro da câmera: devolve [{ n, bau, deck }]
+// 4) Um quadro da câmera: devolve [{ n, bau, deck, foto }]
 // Dois leitores trabalhando ao mesmo tempo (celulares têm vários núcleos): o dobro de quadros por segundo
 function leitoresBau() {
   if (LB.ws) return LB.ws;
   LB.ws = (async () => {
-    const lista = [{ ler: (cv, m) => lerTexto(cv, m) }];
-    await carregarLeitor();
+    const w1 = await carregarLeitor();
+    const lista = [{ w: w1, ler: (cv, m) => lerTexto(cv, m), modo: (m) => { CAM.modo = m; } }];
     if ((navigator.hardwareConcurrency || 2) >= 4) {
       try {
         const w = await Tesseract.createWorker("eng"); let modo = null;
-        lista.push({ ler: async (cv, m) => { if (modo !== m) { await w.setParameters({ tessedit_pageseg_mode: m }); modo = m; } return (await w.recognize(cv)).data.text; } });
+        lista.push({ w, ler: async (cv, m) => { if (modo !== m) { await w.setParameters({ tessedit_pageseg_mode: m }); modo = m; } return (await w.recognize(cv)).data.text; },
+          modo: (m) => { modo = m; } });
       } catch (e) {}
     }
     lista.forEach((l) => { l.livre = true; });
@@ -1951,6 +1975,14 @@ function leitoresBau() {
   })();
   LB.ws.catch(() => { LB.ws = null; });
   return LB.ws;
+}
+async function lerDigitosCom(l, cv) {   // só números (para o total do baú no topo da tela)
+  await l.w.setParameters({ tessedit_char_whitelist: "0123456789", tessedit_pageseg_mode: "7" }); l.modo("7");
+  try { return (await l.w.recognize(cv)).data.text; } finally { await l.w.setParameters({ tessedit_char_whitelist: "" }); }
+}
+function comMargem(r, m = 20) {
+  const c = document.createElement("canvas"); c.width = r.width + 2 * m; c.height = r.height + m;
+  const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); g.drawImage(r, m, m / 2); return c;
 }
 async function lerQuadroBau(fonte, leitor) {
   const W = fonte.videoWidth || fonte.naturalWidth || fonte.width, H = fonte.videoHeight || fonte.naturalHeight || fonte.height;
@@ -1969,34 +2001,62 @@ async function lerQuadroBau(fonte, leitor) {
   const pilha = document.createElement("canvas"); pilha.width = larg; pilha.height = alt;
   const pg = pilha.getContext("2d"); pg.fillStyle = "#fff"; pg.fillRect(0, 0, larg, alt);
   let y = gap; for (const p of partes) { pg.drawImage(p, 20, y); y += p.height + gap; }
-  const nums = linhas.map((L) => numerosDaLinha(g, L));   // antes de esperar a leitura: a imagem grande é reaproveitada
-  const textos = (await (leitor ? leitor.ler(pilha, "6") : lerTexto(pilha, "6"))).split(/\n+/).filter((s) => s.trim());
-  if (textos.length !== linhas.length) return { linhas: linhas.length, cartas: [] };   // não deu para casar texto com linha
-  const cartas = [];
-  linhas.forEach((L, i) => {
-    const a = acharNaLista(textos[i]); if (!a) return;
-    cartas.push({ n: a.c.n, d: a.d, bau: nums[i]?.bau ?? null, deck: nums[i]?.deck ?? null });
+  // antes de esperar a leitura (a imagem grande é reaproveitada): números das caixas e a foto de cada linha
+  const nums = linhas.map((L) => numerosDaLinha(g, L));
+  const fotos = linhas.map((L) => {
+    const x = L.x0 - 7.9 * L.bw, w = 10.3 * L.bw, h = L.passo, yy = (L.y0 + L.y1) / 2 - h / 2, alt2 = 44;
+    const k = document.createElement("canvas"); k.height = alt2; k.width = Math.round(w * alt2 / h);
+    const kg = k.getContext("2d"); kg.imageSmoothingQuality = "high"; kg.drawImage(c, x, yy, w, h, 0, 0, k.width, k.height); return k;
   });
-  return { linhas: linhas.length, cartas };
+  // de vez em quando, lê também o total do baú no topo da tela ("CHEST 210")
+  const topo = linhas[0], lerTopo = leitor && (LB.nq = (LB.nq || 0) + 1) % 5 === 1;
+  const cvTopo = lerTopo ? comMargem(prepararRecorte(c, topo.x0 - 7.55 * topo.bw, topo.y0 - 0.95 * topo.passo, 1.2 * topo.bw, 0.6 * topo.passo, 80)) : null;
+  const textos = (await (leitor ? leitor.ler(pilha, "6") : lerTexto(pilha, "6"))).split(/\n+/).filter((s) => s.trim());
+  let total = null;
+  if (cvTopo) { try { const m = (await lerDigitosCom(leitor, cvTopo)).match(/\d{1,4}/); if (m) total = +m[0]; } catch (e) {} }
+  const cartas = [];
+  if (textos.length === linhas.length) {   // senão não dá para casar texto com linha
+    linhas.forEach((L, i) => {
+      const a = acharNaLista(textos[i]); if (!a) return;
+      cartas.push({ n: a.c.n, d: a.d, bau: nums[i]?.bau ?? null, deck: nums[i]?.deck ?? null, foto: fotos[i] });
+    });
+  }
+  return { linhas: linhas.length, cartas, total };
 }
 // 5) Junta os quadros: cada carta precisa aparecer em 2 quadros; os números vão por votação
-const LB = { cartas: new Map(), ordem: [], ultimoAviso: 0, altLinha: 70 };
-const LB_CHAVE = "fmh-leitura-bau-v1";
-function guardarLB() { try { localStorage.setItem(LB_CHAVE, JSON.stringify({ ordem: LB.ordem, cartas: [...LB.cartas] })); } catch (e) {} }
+const DECK_JOGO = 40;   // no jogo o deck tem sempre 40 cartas
+const LB = { cartas: new Map(), ordem: [], ultimoAviso: 0, altLinha: 70, topo: {}, fotos: new Map() };
+const LB_CHAVE = "fmh-leitura-bau-v1", LB_FOTOS = "fmh-leitura-fotos-v1";
+function guardarLB() {
+  try { localStorage.setItem(LB_CHAVE, JSON.stringify({ ordem: LB.ordem, cartas: [...LB.cartas], topo: LB.topo })); } catch (e) {}
+  if (LB.fotosMudou) { LB.fotosMudou = false; try { localStorage.setItem(LB_FOTOS, JSON.stringify([...LB.fotos])); } catch (e) {} }
+}
 function carregarLB() {
-  LB.cartas = new Map(); LB.ordem = [];
-  try { const g = JSON.parse(localStorage.getItem(LB_CHAVE) || "null"); if (g) { LB.cartas = new Map(g.cartas.filter(([n]) => CARTAS.has(n))); LB.ordem = g.ordem.filter((n) => LB.cartas.has(n)); } } catch (e) {}
+  LB.cartas = new Map(); LB.ordem = []; LB.topo = {}; LB.fotos = new Map();
+  try {
+    const g = JSON.parse(localStorage.getItem(LB_CHAVE) || "null");
+    if (g) { LB.cartas = new Map(g.cartas.filter(([n]) => CARTAS.has(n))); LB.ordem = g.ordem.filter((n) => LB.cartas.has(n)); LB.topo = g.topo || {}; }
+    LB.fotos = new Map(JSON.parse(localStorage.getItem(LB_FOTOS) || "[]"));
+  } catch (e) {}
 }
-function apagarLB() { LB.cartas = new Map(); LB.ordem = []; try { localStorage.removeItem(LB_CHAVE); } catch (e) {} }
+function apagarLB() {
+  LB.cartas = new Map(); LB.ordem = []; LB.topo = {}; LB.fotos = new Map();
+  try { localStorage.removeItem(LB_CHAVE); localStorage.removeItem(LB_FOTOS); } catch (e) {}
+}
 const maisVotado = (o) => { const e = Object.entries(o || {}); return e.length ? +e.sort((a, b) => b[1] - a[1])[0][0] : null; };
+const certeza = (o) => { const v = Object.values(o || {}); const t = v.reduce((s, x) => s + x, 0); return t ? Math.max(...v) / t : 0; };
 function cartasConfirmadas() {
-  // vale quem apareceu em 2 quadros, ou em 1 só mas com o nome lido perfeito
-  return LB.ordem.map((n) => ({ n, ...LB.cartas.get(n) })).filter((x) => x.vistas >= 2 || (x.d ?? 1) <= 0.05)
-    .map((x) => ({ n: x.n, bau: maisVotado(x.vb), deck: maisVotado(x.vd) ?? 0 }));
+  // vale quem apareceu em 2 quadros, ou em 1 só mas com o nome lido perfeito; correções feitas na revisão têm a palavra final
+  return LB.ordem.map((n) => ({ n, ...LB.cartas.get(n) }))
+    .filter((x) => !x.fora && (x.vistas >= 2 || (x.d ?? 1) <= 0.05 || x.manual))
+    .map((x) => ({ n: x.n, bau: x.fixB ?? maisVotado(x.vb), deck: x.fixD ?? maisVotado(x.vd) ?? 0, vistas: x.vistas,
+      cb: x.fixB != null ? 1 : certeza(x.vb), cd: x.fixD != null ? 1 : certeza(x.vd), conferida: !!x.conferida }));
 }
-function juntarQuadro(lidas) {
+function totalDoJogo() { const t = maisVotado(LB.topo); return t && (LB.topo[t] || 0) >= 2 ? t : null; }
+function juntarQuadro(lidas, total) {
   let novas = 0;
-  for (const { n, d, bau, deck } of lidas) {
+  if (total) LB.topo[total] = (LB.topo[total] || 0) + 1;
+  for (const { n, d, bau, deck, foto } of lidas) {
     let x = LB.cartas.get(n);
     if (!x) { x = { vistas: 0, vb: {}, vd: {}, d: 1 }; LB.cartas.set(n, x); LB.ordem.push(n); }
     const antes = x.vistas >= 2 || x.d <= 0.05;
@@ -2004,8 +2064,19 @@ function juntarQuadro(lidas) {
     if (!antes && (x.vistas >= 2 || x.d <= 0.05)) novas++;
     if (bau !== null) x.vb[bau] = (x.vb[bau] || 0) + 1;
     if (deck !== null) x.vd[deck] = (x.vd[deck] || 0) + 1;
+    // guarda a foto da linha (a 1ª e depois uma mais recente, que costuma estar mais no meio da tela)
+    if (foto && (!LB.fotos.has(n) || x.vistas === 3)) { try { LB.fotos.set(n, foto.toDataURL("image/jpeg", 0.7)); LB.fotosMudou = true; } catch (e) {} }
   }
   return novas;
+}
+function resumoContagem() {
+  const ok = cartasConfirmadas();
+  const nb = ok.reduce((s, x) => s + (x.bau ?? 0), 0), nd = ok.reduce((s, x) => s + x.deck, 0), tj = totalDoJogo();
+  const okB = tj !== null && nb === tj, okD = nd === DECK_JOGO;
+  const parte = (rot, app, jogo, bate) => jogo === null ? `${rot}: <b>${app}</b> (ainda lendo o número do jogo…)`
+    : bate ? `${rot}: <b>${app}</b> ✔ igual ao jogo` : `${rot}: <b>${app}</b> ⚠ o jogo mostra ${jogo} (${app < jogo ? `faltam ${jogo - app}` : `${app - jogo} a mais`})`;
+  return { ok, nb, nd, tj, bate: okB && okD,
+    html: `${parte("No baú", nb, tj, okB)}<br>${parte("No deck", nd, DECK_JOGO, okD)}` };
 }
 async function abrirLeitorBau() {
   if ($("#cam")) return;
@@ -2017,15 +2088,15 @@ async function abrirLeitorBau() {
     <div class="cam-video"><video id="cam-v" playsinline muted autoplay></video>
       <span class="cam-legenda">Mostre a TV inteira, com a lista do baú</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
-    <div class="bloco"><span class="rot">Lidas: <b id="lb-n">0</b> cartas diferentes · <span id="lb-tot"></span></span><div id="lb-ultimas" class="suave">—</div></div>
-    <p class="cam-dica">No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois confira os números e corrija com − e + se precisar. <span style="opacity:.6">(versão 9)</span></p>
-    <div class="cam-acoes"><button id="lb-recomecar">Recomeçar</button><button class="principal" id="lb-salvar" disabled>Salvar baú e deck</button></div>`;
+    <div class="bloco"><span class="rot">Lidas: <b id="lb-n">0</b> cartas diferentes</span><div id="lb-tot" style="font-size:14px"></div><div id="lb-ultimas" class="suave">—</div></div>
+    <p class="cam-dica">No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 10)</span></p>
+    <div class="cam-acoes"><button id="lb-recomecar">Recomeçar</button><button class="principal" id="lb-revisar" disabled>Revisar e salvar</button></div>`;
   document.body.append(el);
   document.body.classList.add("sem-rolagem");
   CAM.aberta = true; CAM.foto = false;
   desenharLidasBau();
   try {
-    const leitor = carregarLeitor();
+    const leitor = leitoresBau();
     CAM.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
     if (!CAM.aberta) return pararStream();
     const v = $("#cam-v"); v.srcObject = CAM.stream; await v.play().catch(() => {});
@@ -2038,13 +2109,12 @@ async function abrirLeitorBau() {
   }
 }
 function desenharLidasBau() {
-  const ok = cartasConfirmadas();
-  $("#lb-n").textContent = ok.length;
-  const nb = ok.reduce((s, x) => s + (x.bau ?? 0), 0), nd = ok.reduce((s, x) => s + x.deck, 0);
-  $("#lb-tot").textContent = `${nb} no baú, ${nd} no deck (confira com os números do topo da tela do jogo)`;
-  $("#lb-ultimas").innerHTML = ok.length ? "Últimas lidas (baú / deck):<br>" + ok.slice(-4).map((x) =>
+  const r = resumoContagem();
+  $("#lb-n").textContent = r.ok.length;
+  $("#lb-tot").innerHTML = r.html;
+  $("#lb-ultimas").innerHTML = r.ok.length ? "Últimas lidas (baú / deck):<br>" + r.ok.slice(-4).map((x) =>
     `${esc(CARTAS.get(x.n).nome)} <span class="num" style="color:var(--texto)">${x.bau ?? "?"} / ${x.deck}</span>`).join("<br>") : "—";
-  $("#lb-salvar").disabled = !ok.length;
+  $("#lb-revisar").disabled = !r.ok.length;
 }
 async function cicloBau() {
   if (!CAM.aberta || !$("#lb-n")) return;
@@ -2055,8 +2125,8 @@ async function cicloBau() {
     lerQuadroBau(v, livre).then((r) => {
       if (!CAM.aberta || !$("#lb-n")) return;
       if (!r) { if (Date.now() - LB.ultimoAviso > 2500) camStatus("Não achei a lista. Mostre a TV inteira, com o baú (CHEST) aberto."); }
-      else if (r.cartas.length) {
-        const novas = juntarQuadro(r.cartas);
+      else if (r.cartas.length || r.total) {
+        const novas = juntarQuadro(r.cartas, r.total);
         guardarLB(); desenharLidasBau();
         if (novas) { try { navigator.vibrate?.(40); } catch (e) {} }
         camStatus(`Lendo… ${cartasConfirmadas().length} carta(s) diferentes. Pode continuar descendo.`, "ok"); LB.ultimoAviso = Date.now();
@@ -2065,6 +2135,58 @@ async function cicloBau() {
   }
   setTimeout(cicloBau, 120);
 }
+// 6) Revisão: cada carta com a foto da linha do jogo ao lado do que o app leu; as duvidosas primeiro
+function motivoDuvida(x) {
+  if (x.conferida) return "";
+  const m = [];
+  if (x.vistas <= 2) m.push("vista poucas vezes");
+  if (x.cb < 0.75) m.push("número do baú incerto");
+  if (x.cd < 0.75) m.push("número do deck incerto");
+  return m.join(", ");
+}
+function abrirRevisao() {
+  fecharCamera();
+  let el = $("#rev");
+  if (!el) { el = document.createElement("div"); el.id = "rev"; el.className = "cam"; document.body.append(el); }
+  document.body.classList.add("sem-rolagem");
+  desenharRevisao();
+}
+function fecharRevisao() { $("#rev")?.remove(); document.body.classList.remove("sem-rolagem"); }
+function desenharRevisao() {
+  const el = $("#rev"); if (!el) return;
+  const r = resumoContagem();
+  const itens = r.ok.map((x) => ({ ...x, motivo: motivoDuvida(x) }));
+  const duvidas = itens.filter((x) => x.motivo), certas = itens.filter((x) => !x.motivo);
+  const fora = LB.ordem.filter((n) => LB.cartas.get(n)?.fora);
+  const item = (x) => `<div class="bloco rev-item">
+      ${LB.fotos.get(x.n) ? `<img class="rev-foto" src="${LB.fotos.get(x.n)}" alt="Foto da linha no jogo">` : `<div class="suave" style="font-size:12.5px">(sem foto)</div>`}
+      <div class="rev-linha"><span class="nm">${esc(CARTAS.get(x.n).nome)} <small class="num">#${String(x.n).padStart(3, "0")}</small></span>
+        ${x.motivo ? `<span class="bloq" style="font-size:12.5px">⚠ ${x.motivo}</span>` : ""}</div>
+      <div class="col-qtd" style="justify-content:flex-start;flex-wrap:wrap;gap:6px">
+        <span class="suave">Baú</span><button class="btn-icone" data-rev="b:${x.n}:-1">−</button><b class="num">${x.bau ?? "?"}</b><button class="btn-icone" data-rev="b:${x.n}:1">+</button>
+        <span class="suave" style="margin-left:8px">Deck</span><button class="btn-icone" data-rev="d:${x.n}:-1">−</button><b class="num">${x.deck}</b><button class="btn-icone" data-rev="d:${x.n}:1">+</button>
+        ${x.motivo ? `<button class="btn-icone" data-rev="ok:${x.n}" style="margin-left:auto">✔ Está certo</button>` : ""}
+        <button class="btn-icone" data-rev="x:${x.n}" ${x.motivo ? "" : `style="margin-left:auto"`}>✕ Não tenho</button></div></div>`;
+  el.innerHTML = `
+    <div class="cam-topo"><b>Revisar a leitura</b><button id="rev-fechar">✕ Fechar</button></div>
+    <div class="bloco"><span class="rot">${r.ok.length} cartas diferentes</span><div style="font-size:14px">${r.html}</div>
+      ${r.bate ? `<p style="margin:6px 0 0;color:var(--verde)">Tudo bateu com o jogo.</p>` : `<p class="suave" style="margin:6px 0 0;font-size:12.5px">Compare cada foto com o número ao lado. Se faltar carta, volte para a câmera e passe de novo por onde ela está, ou adicione depois pela busca.</p>`}</div>
+    ${duvidas.length ? `<h3 style="margin:4px 0 0">Confira estas primeiro (${duvidas.length})</h3>${duvidas.map(item).join("")}` : ""}
+    ${certas.length ? `<h3 style="margin:4px 0 0">Lidas com segurança (${certas.length})</h3>${certas.map(item).join("")}` : ""}
+    ${fora.length ? `<p class="suave" style="font-size:12.5px">Tiradas por você: ${fora.map((n) => `<button class="btn-icone" data-rev="volta:${n}">↩ ${esc(CARTAS.get(n).nome)}</button>`).join(" ")}</p>` : ""}
+    <div class="cam-acoes" style="position:sticky;bottom:0;background:var(--fundo);padding-top:8px"><button id="rev-camera">📷 Voltar à câmera</button><button class="principal" id="rev-salvar">Salvar baú e deck</button></div>`;
+}
+function mexerRevisao(acao) {
+  const [op, ns, ds] = acao.split(":"), n = +ns, x = LB.cartas.get(n); if (!x) return;
+  const atual = cartasConfirmadas().find((c) => c.n === n);
+  if (op === "b") x.fixB = Math.max(0, (atual?.bau ?? 0) + +ds);
+  else if (op === "d") x.fixD = Math.max(0, Math.min(3, (atual?.deck ?? 0) + +ds));
+  else if (op === "ok") x.conferida = true;
+  else if (op === "x") x.fora = true;
+  else if (op === "volta") x.fora = false;
+  if (op === "b" || op === "d") x.conferida = true;
+  guardarLB(); desenharRevisao();
+}
 function salvarBau() {
   const ok = cartasConfirmadas();
   // no jogo, o número da caixa branca é o que está guardado FORA do deck; no app, o baú é tudo o que você tem
@@ -2072,20 +2194,24 @@ function salvarBau() {
   // (se a carta está na lista, você tem pelo menos 1: um "0 e 0" só pode ser leitura errada)
   for (const x of ok) { bau[x.n] = Math.max(1, (x.bau ?? 1) + x.deck); if (x.deck > 0) deck[x.n] = x.deck; }
   colecao.bau = bau; colecao.deck = deck;
-  salvarCol(); apagarLB(); fecharCamera(); desenharColecao();
-  avisar(`Salvo: ${somaQtd(bau)} cartas no total, ${somaQtd(deck)} no deck.`);
+  salvarCol(); apagarLB(); fecharCamera(); fecharRevisao(); desenharColecao();
+  avisar(`Salvo: ${somaQtd(bau) - somaQtd(deck)} no baú e ${somaQtd(deck)} no deck.`);
 }
 
 document.addEventListener("click", (e) => {
   const t = e.target.closest("button"); if (!t) return;
   if (t.id === "lb-fechar") fecharCamera();
   else if (t.id === "lb-recomecar") { apagarLB(); desenharLidasBau(); camStatus("Recomeçando: volte ao topo da lista."); }
-  else if (t.id === "lb-salvar") salvarBau();
+  else if (t.id === "lb-revisar") abrirRevisao();
+  else if (t.id === "rev-fechar") fecharRevisao();
+  else if (t.id === "rev-camera") { fecharRevisao(); abrirLeitorBau(); }
+  else if (t.id === "rev-salvar") salvarBau();
+  else if (t.dataset.rev) mexerRevisao(t.dataset.rev);
   if (!t.closest("#v-colecao")) return;
   if (t.dataset.colSub) { col.sub = t.dataset.colSub; desenharColecao(); }
   else if (t.dataset.colSug) { col.sug = +t.dataset.colSug; desenharColecao(); }
   else if (t.dataset.colQ) { const [onde, n, d] = t.dataset.colQ.split(":"); mudarQtd(onde, +n, +d); desenharColecao(); }
-  else if (t.dataset.colAdd) { mudarQtd(col.sub === "deck" ? "deck" : "bau", +t.dataset.colAdd, 1); col.busca = ""; desenharColecao(); avisar(`${CARTAS.get(+t.dataset.colAdd).nome} adicionada.`); }
+  else if (t.dataset.colAdd) { mudarQtd(col.sub === "deck" ? "deck" : "fora", +t.dataset.colAdd, 1); col.busca = ""; desenharColecao(); avisar(`${CARTAS.get(+t.dataset.colAdd).nome} adicionada.`); }
   else if (t.id === "col-camera") abrirLeitorBau();
   else if (t.id === "col-usar-sug") {
     const s = sugerirDecks()[Math.min(col.sug, 1)];

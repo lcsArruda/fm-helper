@@ -1478,7 +1478,7 @@ async function abrirCamera() {
       <span class="cam-legenda">Aponte o quadro para a barra preta com o nome da carta</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="cam-slots" id="cam-slots"></div>
-    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 11)</span></p>
+    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 12)</span></p>
     <label class="cam-foto secundario" id="cam-foto">📷 Ou tirar uma foto da mão<input type="file" accept="image/*" capture="environment" id="cam-arquivo" hidden></label>
     <div class="cam-acoes"><button id="cam-recomecar">Recomeçar</button><button class="principal" id="cam-usar" disabled>Usar estas cartas</button></div>`;
   document.body.append(el);
@@ -2050,7 +2050,7 @@ function cartasConfirmadas() {
   return LB.ordem.map((n) => ({ n, ...LB.cartas.get(n) }))
     .filter((x) => !x.fora && (x.vistas >= 2 || (x.d ?? 1) <= 0.05 || x.manual))
     .map((x) => ({ n: x.n, bau: x.fixB ?? maisVotado(x.vb), deck: x.fixD ?? maisVotado(x.vd) ?? 0, vistas: x.vistas,
-      cb: x.fixB != null ? 1 : certeza(x.vb), cd: x.fixD != null ? 1 : certeza(x.vd), conferida: !!x.conferida }));
+      cb: x.fixB != null ? 1 : certeza(x.vb), cd: x.fixD != null ? 1 : certeza(x.vd), conferida: !!x.conferida, trocada: !!x.trocada }));
 }
 function totalDoJogo() { const t = maisVotado(LB.topo); return t && (LB.topo[t] || 0) >= 2 ? t : null; }
 function juntarQuadro(lidas, total) {
@@ -2089,7 +2089,7 @@ async function abrirLeitorBau() {
       <span class="cam-legenda">Mostre a TV inteira, com a lista do baú</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="bloco"><span class="rot">Lidas: <b id="lb-n">0</b> cartas diferentes</span><div id="lb-tot" style="font-size:14px"></div><div id="lb-ultimas" class="suave">—</div></div>
-    <p class="cam-dica">No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 11)</span></p>
+    <p class="cam-dica">No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 12)</span></p>
     <div class="cam-acoes"><button id="lb-recomecar">Recomeçar</button><button class="principal" id="lb-revisar" disabled>Revisar e salvar</button></div>`;
   document.body.append(el);
   document.body.classList.add("sem-rolagem");
@@ -2139,6 +2139,7 @@ async function cicloBau() {
 function motivoDuvida(x) {
   if (x.conferida) return "";
   const m = [];
+  if (x.trocada) m.push("carta trocada por você: confira os números");
   if (x.vistas <= 2) m.push("vista poucas vezes");
   if (x.cb < 0.75) m.push("número do baú incerto");
   if (x.cd < 0.75) m.push("número do deck incerto");
@@ -2160,7 +2161,6 @@ function desenharRevisao() {
   const duv = LB.revDuv || new Set();
   const itens = r.ok.map((x) => ({ ...x, motivo: duv.has(x.n) && !x.conferida ? motivoDuvida({ ...x, conferida: false }) : "" }));
   const duvidas = itens.filter((x) => duv.has(x.n)), certas = itens.filter((x) => !duv.has(x.n));
-  const faltam = duvidas.filter((x) => x.motivo).length;
   const fora = LB.ordem.filter((n) => LB.cartas.get(n)?.fora);
   const item = (x) => `<div class="bloco rev-item">
       ${LB.fotos.get(x.n) ? `<img class="rev-foto" src="${LB.fotos.get(x.n)}" alt="Foto da linha no jogo">` : `<div class="suave" style="font-size:12.5px">(sem foto)</div>`}
@@ -2169,27 +2169,62 @@ function desenharRevisao() {
       <div class="col-qtd" style="justify-content:flex-start;flex-wrap:wrap;gap:6px">
         <span class="suave">Baú</span><button class="btn-icone" data-rev="b:${x.n}:-1">−</button><b class="num">${x.bau ?? "?"}</b><button class="btn-icone" data-rev="b:${x.n}:1">+</button>
         <span class="suave" style="margin-left:8px">Deck</span><button class="btn-icone" data-rev="d:${x.n}:-1">−</button><b class="num">${x.deck}</b><button class="btn-icone" data-rev="d:${x.n}:1">+</button>
-        ${x.motivo ? `<button class="btn-icone" data-rev="ok:${x.n}" style="margin-left:auto">✔ Está certo</button>` : ""}
-        <button class="btn-icone" data-rev="x:${x.n}" ${x.motivo ? "" : `style="margin-left:auto"`}>✕ Não tenho</button></div></div>`;
+      </div>
+      <div class="col-qtd" style="justify-content:flex-start;flex-wrap:wrap;gap:6px">
+        ${duv.has(x.n) ? `<button class="btn-icone" data-rev="ok:${x.n}">✔ Está certo</button>` : ""}
+        <button class="btn-icone" data-rev="trocar:${x.n}">✎ Carta errada</button>
+        <button class="btn-icone" data-rev="x:${x.n}">✕ Não tenho</button></div>
+      ${LB.revTroca === x.n ? `<div><input id="rev-busca" type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+        placeholder="Qual é a carta da foto?" value="${esc(LB.revBusca || "")}" style="width:100%;font:inherit;padding:10px;border-radius:8px;border:1px solid var(--borda);background:var(--superficie-2);color:var(--texto)">
+        <div id="rev-achadas" class="lista" style="margin-top:6px"></div></div>` : ""}</div>`;
   el.innerHTML = `
     <div class="cam-topo"><b>Revisar a leitura</b><button id="rev-fechar">✕ Fechar</button></div>
     <div class="bloco"><span class="rot">${r.ok.length} cartas diferentes</span><div style="font-size:14px">${r.html}</div>
       ${r.bate ? `<p style="margin:6px 0 0;color:var(--verde)">Tudo bateu com o jogo.</p>` : `<p class="suave" style="margin:6px 0 0;font-size:12.5px">Compare cada foto com o número ao lado e use − e + até ficar igual (pode tocar quantas vezes precisar; nada é salvo antes de tocar em <b>Salvar baú e deck</b>). Se faltar carta, volte para a câmera e passe de novo por onde ela está, ou adicione depois pela busca.</p>`}</div>
-    ${duvidas.length ? `<h3 style="margin:4px 0 0">Confira estas primeiro (${faltam ? `faltam ${faltam} de ${duvidas.length}` : `todas conferidas`})</h3>${duvidas.map(item).join("")}` : ""}
+    ${duvidas.length ? `<h3 style="margin:4px 0 0">Confira estas primeiro (${duvidas.length})</h3><p class="suave" style="margin:0;font-size:12.5px">Acerte os números com − e +. Quando estiver certo, toque em <b>✔ Está certo</b> e ela sai daqui. Se o nome estiver errado, toque em <b>✎ Carta errada</b>.</p>${duvidas.map(item).join("")}` : ""}
     ${certas.length ? `<h3 style="margin:4px 0 0">Lidas com segurança (${certas.length})</h3>${certas.map(item).join("")}` : ""}
     ${fora.length ? `<p class="suave" style="font-size:12.5px">Tiradas por você: ${fora.map((n) => `<button class="btn-icone" data-rev="volta:${n}">↩ ${esc(CARTAS.get(n).nome)}</button>`).join(" ")}</p>` : ""}
     <div class="cam-acoes" style="position:sticky;bottom:0;background:var(--fundo);padding-top:8px"><button id="rev-camera">📷 Voltar à câmera</button><button class="principal" id="rev-salvar">Salvar baú e deck</button></div>`;
+  desenharTrocaRev();
 }
 function mexerRevisao(acao) {
   const [op, ns, ds] = acao.split(":"), n = +ns, x = LB.cartas.get(n); if (!x) return;
   const atual = cartasConfirmadas().find((c) => c.n === n);
   if (op === "b") x.fixB = Math.max(0, (atual?.bau ?? 0) + +ds);
   else if (op === "d") x.fixD = Math.max(0, Math.min(3, (atual?.deck ?? 0) + +ds));
-  else if (op === "ok") x.conferida = true;
+  else if (op === "ok") { x.conferida = true; LB.revDuv?.delete(n); }   // aprovada: sai do quadro "confira"
   else if (op === "x") x.fora = true;
   else if (op === "volta") x.fora = false;
-  if (op === "b" || op === "d") x.conferida = true;
+  else if (op === "trocar") { LB.revTroca = LB.revTroca === n ? null : n; LB.revBusca = ""; }
+  else if (op === "para") { trocarCartaLida(n, +ds); LB.revTroca = null; }
   guardarLB(); desenharRevisao();
+  if (op === "trocar" && LB.revTroca) $("#rev-busca")?.focus();
+}
+// o app achou a carta errada: passa a foto e os números lidos para a carta certa
+function trocarCartaLida(de, para) {
+  const x = LB.cartas.get(de); if (!x || de === para) return;
+  const y = LB.cartas.get(para);
+  if (y && !y.fora) {   // a carta certa já estava na lista: era a mesma linha lida duas vezes
+    x.fora = true; LB.revDuv?.add(para); y.trocada = true; y.conferida = false;
+    avisar(`${CARTAS.get(para).nome} já estava na lista. Tirei a leitura errada; confira os números dela.`);
+    return;
+  }
+  LB.cartas.delete(de); if (y) LB.ordem = LB.ordem.filter((k) => k !== para);
+  Object.assign(x, { trocada: true, conferida: false, manual: true, fora: false });
+  LB.cartas.set(para, x); LB.ordem = LB.ordem.map((k) => k === de ? para : k);
+  if (LB.fotos.has(de)) { LB.fotos.set(para, LB.fotos.get(de)); LB.fotos.delete(de); LB.fotosMudou = true; }
+  if (LB.revDuv) { LB.revDuv.delete(de); LB.revDuv.add(para); }
+  avisar(`Trocada por ${CARTAS.get(para).nome}.`);
+}
+function desenharTrocaRev() {
+  const box = $("#rev-achadas"); if (!box) return;
+  const q = norm(LB.revBusca || "");
+  if (!q) { box.innerHTML = `<div class="suave" style="font-size:12.5px">Escreva o nome (ou o número) da carta que aparece na foto.</div>`; return; }
+  const num = /^\d+$/.test(q) ? +q : null;
+  const achadas = LISTA.filter((c) => num ? c.n === num : c.busca.includes(q)).slice(0, 6);
+  box.innerHTML = achadas.map((c) => `<button class="linha com-img" data-rev="para:${LB.revTroca}:${c.n}"><span class="th">${mini(c.n, "m44")}</span>
+    <span class="nm">${esc(c.nome)} <small class="num">#${String(c.n).padStart(3, "0")}</small></span><span class="vl">é esta</span></button>`).join("")
+    || `<div class="vazio">Nenhuma carta com esse nome.</div>`;
 }
 function salvarBau() {
   const ok = cartasConfirmadas();
@@ -2231,6 +2266,7 @@ document.addEventListener("click", (e) => {
   }
 });
 document.addEventListener("input", (e) => { if (e.target.id === "col-busca") { col.busca = e.target.value; desenharAchadas(); } });
+document.addEventListener("input", (e) => { if (e.target.id === "rev-busca") { LB.revBusca = e.target.value; desenharTrocaRev(); } });
 
 
 // Lista em texto (para mandar por WhatsApp, e-mail…): número;no baú do jogo;no deck;nome

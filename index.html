@@ -1479,7 +1479,7 @@ async function abrirCamera() {
       <span class="cam-legenda">Aponte o quadro para a barra preta com o nome da carta</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="cam-slots" id="cam-slots"></div>
-    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 15)</span></p>
+    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 16)</span></p>
     <label class="cam-foto secundario" id="cam-foto">📷 Ou tirar uma foto da mão<input type="file" accept="image/*" capture="environment" id="cam-arquivo" hidden></label>
     <div class="cam-acoes"><button id="cam-recomecar">Recomeçar</button><button class="principal" id="cam-usar" disabled>Usar estas cartas</button></div>`;
   document.body.append(el);
@@ -1996,7 +1996,7 @@ async function lerQuadroBau(fonte, leitor) {
   // (cada leitor reaproveita as suas imagens: criar imagens novas a cada quadro pesa no celular)
   const cv = leitor || (LB.cvSo ||= {});
   const gap = 20, tam = linhas.map((L) => {
-    const h = L.passo * 0.92, x = L.x0 - 7.8 * L.bw, w = 4.7 * L.bw, e = Math.max(1, Math.min(4, LB.altLinha / h, 2400 / w));
+    const h = L.passo * 0.92, bn = Math.max(L.bw, 1.42 * L.passo), x = L.x0 + L.bw / 2 - (LB.xNome + 0.5) * bn, w = (LB.xNome - 3.1) * bn, e = Math.max(1, Math.min(4, LB.altLinha / h, 2400 / w));
     return { x, y: (L.y0 + L.y1) / 2 - h / 2, w, h, W: Math.round(w * e), H: Math.round(h * e) };
   });
   const larg = Math.max(...tam.map((t) => t.W)) + 40, alt = tam.reduce((s, t) => s + t.H + gap, gap);
@@ -2036,7 +2036,7 @@ async function lerQuadroBau(fonte, leitor) {
 }
 // 5) Junta os quadros: cada carta precisa aparecer em 2 quadros; os números vão por votação
 const DECK_JOGO = 40;   // no jogo o deck tem sempre 40 cartas
-const LB = { cartas: new Map(), ordem: [], ultimoAviso: 0, altLinha: 70, topo: {}, fotos: new Map() };
+const LB = { cartas: new Map(), ordem: [], ultimoAviso: 0, altLinha: 70, xNome: 8.5, topo: {}, fotos: new Map() };
 const LB_CHAVE = "fmh-leitura-bau-v1", LB_FOTOS = "fmh-leitura-fotos-v1";
 function guardarLB(tudo) {
   try { localStorage.setItem(LB_CHAVE, JSON.stringify({ ordem: LB.ordem, cartas: [...LB.cartas], topo: LB.topo })); } catch (e) {}
@@ -2101,7 +2101,7 @@ async function abrirLeitorBau() {
       <span class="cam-legenda">Mostre a TV inteira, com a lista do baú</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="bloco"><span class="rot">Lidas: <b id="lb-n">0</b> cartas diferentes</span><div id="lb-tot" style="font-size:14px"></div><div id="lb-ultimas" class="suave">—</div></div>
-    <p class="cam-dica">No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 15)</span></p>
+    <p class="cam-dica">No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 16)</span></p>
     <div class="cam-acoes"><button id="lb-recomecar">Recomeçar</button><button class="principal" id="lb-revisar" disabled>Revisar e salvar</button></div>`;
   document.body.append(el);
   document.body.classList.add("sem-rolagem");

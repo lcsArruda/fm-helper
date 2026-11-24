@@ -1478,7 +1478,7 @@ async function abrirCamera() {
       <span class="cam-legenda">Aponte o quadro para a barra preta com o nome da carta</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="cam-slots" id="cam-slots"></div>
-    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 13)</span></p>
+    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 14)</span></p>
     <label class="cam-foto secundario" id="cam-foto">📷 Ou tirar uma foto da mão<input type="file" accept="image/*" capture="environment" id="cam-arquivo" hidden></label>
     <div class="cam-acoes"><button id="cam-recomecar">Recomeçar</button><button class="principal" id="cam-usar" disabled>Usar estas cartas</button></div>`;
   document.body.append(el);
@@ -2010,9 +2010,9 @@ async function lerQuadroBau(fonte, leitor) {
   tira.width = largF; tira.height = AF * linhas.length;
   const tg = tira.getContext("2d"); tg.imageSmoothingQuality = "high";
   linhas.forEach((L, i) => { const h = L.passo, w = 10.3 * L.bw; tg.drawImage(c, L.x0 - 7.9 * L.bw, (L.y0 + L.y1) / 2 - h / 2, w, h, 0, i * AF, Math.round(w * AF / h), AF); });
-  // de vez em quando, lê também o total do baú no topo da tela ("CHEST 210"); depois de confirmado, bem menos
-  const conf = (LB.topo[maisVotado(LB.topo)] || 0) >= 3;
-  const topo = linhas[0], lerTopo = leitor && (LB.nq = (LB.nq || 0) + 1) % (conf ? 25 : 5) === 1;
+  // lê o total do baú no topo da tela ("CHEST 210") só até achar: quando o mesmo número sai 2 vezes, para de procurar
+  // (o deck não precisa ler: no jogo ele tem sempre 40)
+  const topo = linhas[0], lerTopo = leitor && totalDoJogo() === null && (LB.nq = (LB.nq || 0) + 1) % 3 === 1;
   const cvTopo = lerTopo ? comMargem(prepararRecorte(c, topo.x0 - 7.55 * topo.bw, topo.y0 - 0.95 * topo.passo, 1.2 * topo.bw, 0.6 * topo.passo, 80)) : null;
   const textos = (await (leitor ? leitor.ler(pilha, "6") : lerTexto(pilha, "6"))).split(/\n+/).filter((s) => s.trim());
   let total = null;
@@ -2100,7 +2100,7 @@ async function abrirLeitorBau() {
       <span class="cam-legenda">Mostre a TV inteira, com a lista do baú</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="bloco"><span class="rot">Lidas: <b id="lb-n">0</b> cartas diferentes</span><div id="lb-tot" style="font-size:14px"></div><div id="lb-ultimas" class="suave">—</div></div>
-    <p class="cam-dica">No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 13)</span></p>
+    <p class="cam-dica">No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 14)</span></p>
     <div class="cam-acoes"><button id="lb-recomecar">Recomeçar</button><button class="principal" id="lb-revisar" disabled>Revisar e salvar</button></div>`;
   document.body.append(el);
   document.body.classList.add("sem-rolagem");

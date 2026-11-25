@@ -976,13 +976,16 @@ function distTrecho(nome, texto) {
   return Math.min(...ant);
 }
 // Texto lido -> carta mais parecida (ou null se não der para ter certeza)
-function acharCarta(texto) {
+// "lista": procurar só entre estas cartas (ex.: as do deck). Sem lista, procura em todas.
+function acharCarta(texto, lista = null) {
   const nums = (texto.match(/\d{2,4}/g) || []).map(Number);
-  const t = normNome(texto.replace(/\d+/g, " "));
+  // tira os números (ATK/DEF), menos o de "#2" no fim do nome (Mushroom Man #2 é outra carta, não Mushroom Man)
+  const t = normNome(texto.replace(/[%&*@]\s*(\d)(?!\d)/g, "#$1").replace(/(?<!#)\d+/g, " "));
   if (t.length < 4) return null;
   NOMES_NORM ||= LISTA.map((c) => [c, normNome(c.nome)]);
+  const nomes = lista ? lista.map((c) => [c, normNome(c.nome)]) : NOMES_NORM;
   let melhor = null, segundo = null;
-  for (const [c, nn] of NOMES_NORM) {
+  for (const [c, nn] of nomes) {
     let d;
     if (nn.length > t.length + 2) d = distLev(t, nn.slice(0, t.length)) / t.length + 0.02;   // nome cortado na tela
     else d = distTrecho(nn, t) / nn.length;   // o nome pode vir com "sujeira" antes/depois
@@ -991,8 +994,28 @@ function acharCarta(texto) {
     if (!melhor || d < melhor.d) { segundo = melhor; melhor = r; } else if (!segundo || d < segundo.d) segundo = r;
   }
   if (!melhor || melhor.d > 0.3) return null;
+  // "Nome" x "Nome #1" x "Nome #2" são cartas diferentes: decide pelo que vem logo depois do nome no texto
+  // (o "#" às vezes sai como "%" ou "8": "Man %2", "Man 82")
+  const base = melhor.c.nome.replace(/ #\d+$/, "");
+  const irmas = (lista || LISTA).filter((c) => c.nome === base || c.nome.startsWith(base + " #"));
+  if (irmas.length > 1) {
+    const raw = texto.toLowerCase().replace(/[%&*@]/g, "#");
+    const m = raw.match(new RegExp(base.toLowerCase().replace(/[^a-z0-9]/g, "").split("").join("[^a-z0-9#]*") + String.raw`\s*(?:#\s*(\d)|8(\d)(?!\d))?`));
+    if (m) {
+      const dig = m[1] || m[2];
+      const certa = dig ? irmas.find((c) => c.nome.endsWith("#" + dig)) : irmas.find((c) => c.nome === base);
+      if (certa) return { c: certa, d: melhor.d };
+      const porNum = irmas.find((c) => monstro(c) && nums.includes(c.atk) && nums.includes(c.def));
+      return porNum ? { c: porNum, d: melhor.d } : null;   // não deu para saber qual: não chuta
+    }
+  }
   if (segundo && segundo.d - melhor.d < 0.06 && segundo.c.nome !== melhor.c.nome) return null;   // ambíguo: não chuta
   return melhor;
+}
+// cartas do deck salvo (para ler a mão: ela só pode ter cartas do deck). null se o deck não está salvo.
+function cartasDoDeck() {
+  const ns = Object.keys(colecao.deck || {}).map(Number).filter((n) => CARTAS.has(n));
+  return somaQtd(colecao.deck || {}) >= 30 ? ns.map((n) => CARTAS.get(n)) : null;
 }
 
 // Recorta, aumenta e deixa só o texto claro (preto no branco) — limiar automático (Otsu)
@@ -1417,12 +1440,15 @@ async function ciclo() {
 // Ao vivo: lê o nome na barra preta. Cada carta nova (lida 2 vezes seguidas) vai para o próximo espaço.
 async function lerNomeAoVivo(m) {
   const canvas = prepararRecorte(m.fonte, m.x, m.y, m.w, m.h);
-  const texto = await lerTexto(canvas, "6");
-  let melhor = null;
-  for (const linha of texto.split(/\n+/)) { const a = acharCarta(linha); if (a && (!melhor || a.d < melhor.d)) melhor = a; }
+  const texto = await lerTexto(canvas, "6"), linhas = texto.split(/\n+/), deck = cartasDoDeck();
+  const procurar = (lista) => { let m = null; for (const l of linhas) { const a = acharCarta(l, lista); if (a && (!m || a.d < m.d)) m = a; } return m; };
+  // primeiro entre as cartas do deck: nome bem lido de uma carta do deck já vale na 1ª leitura
+  let melhor = deck ? procurar(deck) : null;
+  const rapido = !!melhor && melhor.d <= 0.12;
+  if (!melhor || melhor.d > 0.2) melhor = procurar(null);   // fora do deck (ou leitura fraca): precisa ler igual 2 vezes
   if (!melhor) { CAM.candidato = null; CAM.contagem = 0; return; }
   if (melhor.c.n === CAM.candidato) CAM.contagem++; else { CAM.candidato = melhor.c.n; CAM.contagem = 1; }
-  if (CAM.contagem === 2) adicionarPeloNome(melhor.c.n);
+  if (CAM.contagem === 2 || (rapido && CAM.contagem === 1)) adicionarPeloNome(melhor.c.n);
 }
 function adicionarPeloNome(n) {
   if (n === CAM.ultimoAdd) return;   // ainda é a mesma carta embaixo do cursor
@@ -1481,7 +1507,7 @@ async function abrirCamera() {
       <span class="cam-legenda">Aponte o quadro para a barra preta com o nome da carta</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="cam-slots" id="cam-slots"></div>
-    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 26)</span></p>
+    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 27)</span></p>
     <label class="cam-foto secundario" id="cam-foto">📷 Ou tirar uma foto da mão<input type="file" accept="image/*" capture="environment" id="cam-arquivo" hidden></label>
     <div class="cam-acoes"><button id="cam-recomecar">Recomeçar</button><button class="principal" id="cam-usar" disabled>Usar estas cartas</button></div>`;
   document.body.append(el);
@@ -2312,7 +2338,7 @@ async function abrirLeitorBau(modo = "tudo") {
       <input id="lb-topo" type="number" inputmode="numeric" min="0" max="9999" placeholder="?" style="width:84px;font:inherit;padding:6px 8px;border-radius:8px;border:1px solid var(--borda);background:var(--superficie-2);color:var(--texto)"></label>
       <div id="lb-tot" style="font-size:14px"></div><div id="lb-ultimas" class="suave">—</div></div>
     ${modo === "novas" ? `<p class="cam-dica">No jogo, abra o baú (CHEST) e ordene pelas <b>novas</b> (elas ficam no começo, com "New!"). Confira o número do CHEST acima (corrija se estiver errado) e desça a lista devagar até eu avisar que achei todas. Depois toque em <b>Revisar</b>.</p>` : ""}
-    <p class="cam-dica" ${modo === "novas" ? 'style="display:none"' : ""}>No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 26)</span></p>
+    <p class="cam-dica" ${modo === "novas" ? 'style="display:none"' : ""}>No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 27)</span></p>
     <div class="cam-acoes"><button id="lb-recomecar">Recomeçar</button><button class="principal" id="lb-revisar" disabled>Revisar e salvar</button></div>`;
   document.body.append(el);
   document.body.classList.add("sem-rolagem");

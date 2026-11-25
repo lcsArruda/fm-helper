@@ -283,6 +283,7 @@ body.sem-rolagem { overflow: hidden; }
 .par-col { display: flex; align-items: center; gap: 6px; font-size: 13.5px; }
 .seletor.quatro button { font-size: 12.5px; padding: 0 2px; }
 .bloco { background: var(--superficie); border: 1px solid var(--borda); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
+.bloco.sit-ok { border-left: 4px solid #3fae5a; } .bloco.sit-bau { border-left: 4px solid #e0b030; } .bloco.sit-farm { border-left: 4px solid #d9534f; }
 .bloco h3 { margin: 0; font-size: 16px; }
 .bloco .rot { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--ouro); font-weight: 700; }
 .bloco p { margin: 0; }
@@ -675,7 +676,18 @@ function desenharHistoria() {
   const v = $("#v-historia");
   if (!HISTORIA.length) { v.innerHTML = `<div class="vazio">Sem dados da história.</div>`; return; }
   const i = hist.ver, e = HISTORIA[i], lib = liberadosAte(i), ehAtual = hist.atual === i;
-  const opcoes = HISTORIA.map((x, j) => `<option value="${j}" ${j === i ? "selected" : ""}>${hist.atual === j ? "▶ " : hist.atual !== null && j < hist.atual ? "✔ " : ""}${x.ordem}. ${esc(x.etapa)} (${esc(x.duelista)})</option>`).join("");
+  // 🟢 / 🟡 / 🔴 em cada etapa: seu deck dá conta, dá para melhorar com o baú, ou precisa farmar
+  const temBau = somaQtd(colecao.bau) > 0;
+  const sits = temBau ? HISTORIA.map((_, j) => situacaoEtapa(j)) : null;
+  const opcoes = HISTORIA.map((x, j) => `<option value="${j}" ${j === i ? "selected" : ""}>${sits ? SIT[sits[j].s][0] + " " : ""}${hist.atual === j ? "▶ " : hist.atual !== null && j < hist.atual ? "✔ " : ""}${x.ordem}. ${esc(x.etapa)} (${esc(x.duelista)})</option>`).join("");
+  const si = sits && sits[i];
+  const blocoSit = si ? `<div class="bloco sit-${si.s}"><span class="rot">Seu deck nesta etapa</span>
+      <p><b>${SIT[si.s][0]} ${SIT[si.s][1]}</b></p>
+      <p class="suave">Força da mão: seu deck atual <b>${si.atual || "—"}</b>${si.atual ? "" : " (deck não lido)"} · melhor deck com o seu baú <b>${si.bau}</b> · referência da etapa <b>${si.ref}</b> (bom a partir de ${si.alvo}).</p>
+      <p class="suave" style="font-size:12.5px">${si.s === "ok" ? "Seu deck já está perto (ou acima) do deck de referência desta etapa."
+        : si.s === "bau" ? "Você já tem as cartas: abra Minhas cartas → Melhores decks e monte o deck sugerido."
+        : `Nem o melhor deck com o seu baú chega lá. Veja a aba <b>Para farmar</b> (ou a aba Farm).`}
+        A referência é o deck ideal com as cartas que dá para farmar até esta etapa. O app não tem os decks dos adversários, então é uma régua aproximada.</p></div>` : "";
   let corpo = "";
   if (hist.sub === "dicas") {
     const alvos = e.alvos.map((a) => CARTAS.get(a.n).nome);
@@ -687,25 +699,22 @@ function desenharHistoria() {
         <div class="chips">${[...lib].sort().map((d) => `<span class="chip">${esc(d)}</span>`).join("") || '<span class="suave">nenhum ainda</span>'}</div></div>
       ${COMO_FARMAR}`;
   } else if (hist.sub === "deck") {
-    const deck = e.deck.map(([n, copias, funcao]) => ({ c: CARTAS.get(n), copias, funcao, f: melhor(n, lib) }));
-    const total = deck.reduce((s, x) => s + x.copias, 0);
-    const o = hist.ordem;
-    if (o === "farm") deck.sort((a, b) => {
-      if (!a.f || !b.f) return !a.f - !b.f;
-      return ordemLib(a.f.d) - ordemLib(b.f.d) || a.f.d.localeCompare(b.f.d) || ORDEM_RANK[a.f.r] - ORDEM_RANK[b.f.r] || b.f.t - a.f.t;
-    });
-    else if (o === "numero") deck.sort((a, b) => a.c.n - b.c.n);
-    else if (o !== "app") deck.sort((a, b) => (a.c.ordens[o] ?? 99999) - (b.c.ordens[o] ?? 99999) || a.c.n - b.c.n);
-    if (hist.inverter) deck.reverse();
-    corpo = `<p class="suave" style="margin:0">Deck com cartas que você já consegue farmar nesta etapa: <b style="color:var(--ouro-claro)">${total} cartas</b>.${total < 40 ? ` <span class="bloq">Só deu para montar ${total} com o que já está liberado.</span>` : ""}</p>
-      <div class="opcoes"><select class="select" id="ordem-deck" aria-label="Organizar por">${ORDENS.map(([k, t]) => `<option value="${k}" ${k === o ? "selected" : ""}>Organizar: ${t}</option>`).join("")}</select>
-        <label class="alternar"><input type="checkbox" id="inverter-deck" ${hist.inverter ? "checked" : ""}> Inverter</label></div>
-      <div class="linhas">${deck.map((x) => `<button class="linha com-img" data-fontes="${x.c.n}">
-          <span class="th">${mini(x.c.n, "m44")}<span class="qtd-selo num">${x.copias}x</span></span>
-          <span class="nm">${esc(x.c.nome)} <small class="num">#${String(x.c.n).padStart(3, "0")}</small></span>
-          <span class="vl num">${monstro(x.c) ? `${x.c.atk}/${x.c.def}` : esc(x.c.tipo)}</span>
-          <span class="det">${esc(x.funcao)}<br>${x.f ? txtFonte(x.f) : "—"}</span></button>`).join("")}</div>
-      <p class="suave" style="margin:0;font-size:12.5px">Toque numa carta para ver todos os lugares onde ela pode ser farmada.</p>`;
+    if (!temBau) corpo = `<div class="vazio">Primeiro coloque no app as cartas que você tem (aba Minhas cartas → Baú). Aí eu calculo quais cartas vale a pena farmar.</div>`;
+    else {
+      const lista = cartasParaFarmar(lib).slice();
+      if (hist.farmOrd === "ganho") lista.sort((a, b) => b.g - a.g || b.porVit - a.porVit);
+      const top = lista.slice(0, 20);
+      corpo = `<p class="suave" style="margin:0">Cartas que dá para farmar ${ehAtual ? "agora" : "nesta etapa"} e que deixariam o seu melhor deck (montado com o seu baú) mais forte. O ganho é na mesma “força da mão” da aba Minhas cartas, com <b>1 cópia a mais</b> de cada carta.</p>
+        <div class="chips">${[["vit", "Melhora mais rápido"], ["ganho", "Maior ganho"]].map(([k, t]) => `<button class="chip" data-farm-ord="${k}" aria-pressed="${(hist.farmOrd || "vit") === k}">${t}</button>`).join("")}</div>
+        <p class="suave" style="margin:0;font-size:12.5px">${(hist.farmOrd || "vit") === "vit" ? "“Melhora mais rápido” = ganho × chance de cair: o que mais melhora o deck por vitória no Duelo Livre." : "“Maior ganho” = a carta que mais melhora o deck, mesmo que demore para cair."}</p>
+        <div class="linhas">${top.map((x) => `<button class="linha com-img" data-fontes="${x.c.n}">
+            <span class="th">${mini(x.c.n, "m44")}${colecao.bau[x.c.n] ? `<span class="qtd-selo num">${Math.min(colecao.bau[x.c.n], MAX_COPIAS)}x</span>` : ""}</span>
+            <span class="nm">${esc(x.c.nome)} <small class="num">#${String(x.c.n).padStart(3, "0")}</small></span>
+            <span class="vl num lib">+${x.g}</span>
+            <span class="det">${monstro(x.c) ? `${x.c.atk}/${x.c.def} · ` : `${esc(x.c.tipo)} · `}${colecao.bau[x.c.n] ? `você tem ${colecao.bau[x.c.n]}` : "você não tem"}<br>${txtFonte(x.f)} · ~${x.vits} vitórias em média</span></button>`).join("")
+          || `<div class="vazio">Nenhuma carta liberada nesta etapa deixa o seu melhor deck mais forte. Avance na história para liberar novos duelistas.</div>`}</div>
+        <p class="suave" style="margin:0;font-size:12.5px">Toque numa carta para ver todos os lugares onde ela pode ser farmada. Magias e armadilhas ficam de fora: o app ainda não mede a força delas.</p>`;
+    }
   } else if (hist.sub === "fusoes") {
     if (!e.alvos.length) corpo = `<div class="vazio">Nenhuma fusão-chave nesta etapa.</div>`;
     else {
@@ -734,8 +743,9 @@ function desenharHistoria() {
       <div class="campo-sel"><select id="etapa" aria-label="Etapa">${opcoes}</select>
         <button class="btn ${ehAtual ? "marcado" : "ouro"}" id="estou-aqui">${ehAtual ? "✔ Aqui" : "Estou aqui"}</button></div></section>
     <div class="seletor quatro" role="group" aria-label="Conteúdo da etapa">
-      ${[["dicas", "Dicas"], ["deck", "Deck ideal"], ["fusoes", "Fusões"], ["chaves", "Cartas"]].map(([k, t]) => `<button data-sub="${k}" aria-pressed="${hist.sub === k}">${t}</button>`).join("")}
+      ${[["dicas", "Dicas"], ["deck", "Para farmar"], ["fusoes", "Fusões"], ["chaves", "Cartas"]].map(([k, t]) => `<button data-sub="${k}" aria-pressed="${hist.sub === k}">${t}</button>`).join("")}
     </div>
+    ${blocoSit}
     ${corpo}`;
 }
 
@@ -752,13 +762,36 @@ function desenharFarm() {   // monta a moldura (a caixa de busca fica fixa para 
   $("#busca-farm").value = farm.busca;
   desenharFarmRes();
 }
+// Os farms que mais melhoram o seu melhor deck agora: cada (duelista, rank) vale a soma de ganho × chance das cartas que ele dá
+function farmsRecomendados(lib) {
+  const cartas = cartasParaFarmar(lib), porN = new Map(cartas.map((x) => [x.c.n, x])), grupos = [];
+  for (const d of lib) for (const r of RANKS) {
+    const itens = (DROP_DUEL.get(d) || []).filter((f) => f.r === r && porN.has(f.n)).map((f) => ({ x: porN.get(f.n), t: f.t }));
+    if (!itens.length) continue;
+    const v = itens.reduce((s, it) => s + it.x.g * it.t / 2048, 0);
+    grupos.push({ d, r, v, itens: itens.sort((a, b) => b.x.g * b.t - a.x.g * a.t) });
+  }
+  return grupos.sort((a, b) => b.v - a.v).slice(0, 5);
+}
+function blocoFarmsAgora() {
+  if (hist.atual === null) return `<div class="bloco"><span class="rot">Farms para fazer agora</span><p class="suave">Marque a sua etapa na aba História (“Estou aqui”) para eu dizer quais farms deixam o seu deck mais forte agora.</p></div>`;
+  if (!somaQtd(colecao.bau)) return `<div class="bloco"><span class="rot">Farms para fazer agora</span><p class="suave">Coloque as suas cartas no app (Minhas cartas → Baú) para eu calcular quais farms valem a pena.</p></div>`;
+  const gs = farmsRecomendados(liberadosAte(hist.atual));
+  if (!gs.length) return `<div class="bloco"><span class="rot">Farms para fazer agora</span><p class="suave">Nenhum duelista liberado na sua etapa dá cartas que melhorem o seu melhor deck. Avance na história para liberar novos.</p></div>`;
+  return `<div class="bloco"><span class="rot">Farms para fazer agora (etapa ${HISTORIA[hist.atual].ordem})</span>
+      <p class="suave" style="font-size:12.5px">Em ordem: os que mais melhoram o seu melhor deck por vitória (mesma “força da mão” da aba Minhas cartas). Toque para ver tudo o que o duelista dá.</p></div>
+    <div class="linhas">${gs.map((g, k) => `<button class="linha" style="grid-template-columns:1fr auto" data-farm-ir="${esc(g.d)}|${RANKS.indexOf(g.r)}">
+      <span class="nm">${k + 1}. ${esc(g.d)} · rank ${esc(g.r)}</span><span class="vl num lib">+${g.v.toFixed(1)}/vitória</span>
+      <span class="det" style="grid-column:1/-1">${g.itens.slice(0, 4).map((it) => `${esc(it.x.c.nome)} (+${it.x.g}, ${pct(it.t)})`).join(" · ")}${g.itens.length > 4 ? ` · e mais ${g.itens.length - 4}` : ""}</span></button>`).join("")}</div>
+    <p class="suave" style="margin:0;font-size:12.5px">“+X/vitória” = quanto a força da mão sobe, em média, a cada vitória com esse rank. Lembre: o rank depende de como você vence (veja “Como farmar” na aba História).</p>`;
+}
 function desenharFarmRes() {
   const lib = hist.atual !== null ? liberadosAte(hist.atual) : null;
   const marca = (d) => lib ? (lib.has(d) ? ' <span class="lib">✔</span>' : ' <span class="bloq">🔒</span>') : "";
   const q = norm(farm.busca);
   let corpo = "";
   if (farm.modo === "carta") {
-    if (!q) corpo = `<div class="vazio">Digite o nome (ou número) de uma carta para ver quem dá ela e com qual chance.${lib ? "" : "<br><br>Dica: marque sua etapa na aba História para ver quais duelistas já estão liberados (✔) ou não (🔒)."}</div>`;
+    if (!q) corpo = blocoFarmsAgora() + `<div class="vazio">Digite o nome (ou número) de uma carta para ver quem dá ela e com qual chance.${lib ? "" : "<br><br>Dica: marque sua etapa na aba História para ver quais duelistas já estão liberados (✔) ou não (🔒)."}</div>`;
     else {
       const numero = /^\d+$/.test(farm.busca.trim()) ? Number(farm.busca.trim()) : null;
       const achadas = LISTA.filter((c) => c.n === numero || c.busca.includes(q))
@@ -783,7 +816,7 @@ function desenharFarmRes() {
           return `<div class="drop-l">${mini(c.n, "m40")}<div class="corpo"><div class="topo-res"><span>${esc(c.nome)}</span><span class="vl num">${pct(f.t)}</span></div>
             <div class="det">Rank ${esc(f.r)} · ${f.t}/2048 · ${monstro(c) ? `${esc(c.tipo)} ${c.atk}/${c.def}` : esc(c.tipo)}</div></div></div>`; }).join("") || '<div class="vazio">Nada neste rank.</div>'}</div>`;
     } else {
-      corpo = `<p class="suave" style="margin:0;font-size:13px">Na ordem em que aparecem na história. Toque num duelista para ver o que ele dá.</p>
+      corpo = (q ? "" : blocoFarmsAgora()) + `<p class="suave" style="margin:0;font-size:13px">Na ordem em que aparecem na história. Toque num duelista para ver o que ele dá.</p>
         <div class="chips">${nomes.map((d) => `<button class="chip" data-duelista="${esc(d)}">${esc(d)}${marca(d)}</button>`).join("") || '<span class="suave">Nenhum duelista com esse nome.</span>'}</div>`;
     }
   }
@@ -1507,7 +1540,7 @@ async function abrirCamera() {
       <span class="cam-legenda">Aponte o quadro para a barra preta com o nome da carta</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="cam-slots" id="cam-slots"></div>
-    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 29)</span></p>
+    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 30)</span></p>
     <label class="cam-foto secundario" id="cam-foto">📷 Ou tirar uma foto da mão<input type="file" accept="image/*" capture="environment" id="cam-arquivo" hidden></label>
     <div class="cam-acoes"><button id="cam-recomecar">Recomeçar</button><button class="principal" id="cam-usar" disabled>Usar estas cartas</button></div>`;
   document.body.append(el);
@@ -1916,6 +1949,64 @@ function montarSugestoes() {
   return [{ nome: "Melhor deck", desc: "Testei o deck em centenas de mãos sorteadas e fui trocando carta por carta até a mão ficar o mais forte possível (contando fusões de 2 a 5 cartas e equipamentos).",
     deck, resumo: resumoDeck(deck), forca: melhorF }];
 }
+
+// --- O que farmar: quanto cada carta que dá para farmar deixaria o seu melhor deck mais forte ---
+// Usa a mesma "força da mão" do melhor deck: para cada carta, tenta pôr 1 cópia a mais no lugar de cada carta
+// do melhor deck e fica com a troca que mais aumenta a força. lib = duelistas liberados (onde dá para farmar).
+const cacheFarm = new Map();
+function cartasParaFarmar(lib) {
+  const chave = JSON.stringify(colecao.bau) + "|" + [...lib].sort().join();
+  if (cacheFarm.has(chave)) return cacheFarm.get(chave);
+  const own = {}; for (const [k, q] of Object.entries(colecao.bau)) if (q > 0) own[k] = Math.min(q, MAX_COPIAS);
+  const base = somaQtd(own) ? sugerirDecks()[0].deck : {};
+  const cont = {}; for (const [n, q] of Object.entries(base)) cont[n] = q;
+  // candidatas: monstros e equipamentos que algum duelista liberado dá, que você ainda não tem 3 e cujas cópias já estão todas no deck
+  const cand = LISTA.filter((c) => (monstro(c) || c.tipo === "Equipamento") && (own[c.n] || 0) < MAX_COPIAS && (cont[c.n] || 0) >= (own[c.n] || 0) && melhor(c.n, lib));
+  const res = [];
+  const slots = slotsDe(base);
+  if (slots.length < TAM_DECK) {
+    // deck incompleto: a carta entra num espaço vazio
+    const f0 = slots.length >= 5 ? forcaDeck(base) : 0;
+    for (const c of cand) { const d = { ...base, [c.n]: (base[c.n] || 0) + 1 }; const g = forcaDeck(d) - f0; if (g > 0) res.push({ c, g }); }
+  } else {
+    const N = 600, maos = maosSorteadas(slots.length, N, 11), porSlot = slots.map(() => []);
+    maos.forEach((a, h) => a.forEach((i) => porSlot[i].push(h)));
+    const val = maos.map((a) => forcaMao(a.map((j) => slots[j])));
+    // um lugar por carta diferente do deck (cópias iguais dão quase o mesmo resultado); magias não saem
+    const lugares = []; const vistos = new Set();
+    slots.forEach((n, i) => { const c = CARTAS.get(n); if (!vistos.has(n) && (monstro(c) || c.tipo === "Equipamento")) { vistos.add(n); lugares.push(i); } });
+    for (const c of cand) {
+      let best = 0;
+      for (const i of lugares) {
+        const velho = slots[i]; slots[i] = c.n; let d = 0;
+        for (const h of porSlot[i]) d += forcaMao(maos[h].map((j) => slots[j])) - val[h];
+        slots[i] = velho; if (d > best) best = d;
+      }
+      const g = Math.round(best / N); if (g >= 3) res.push({ c, g });
+    }
+  }
+  // fonte mais fácil (maior chance) entre os liberados; valor por vitória = ganho × chance
+  for (const x of res) { x.f = melhor(x.c.n, lib); x.porVit = x.g * x.f.t / 2048; x.vits = Math.round(2048 / x.f.t); }
+  res.sort((a, b) => b.porVit - a.porVit || b.g - a.g);
+  cacheFarm.set(chave, res);
+  return res;
+}
+// Situação do deck numa etapa, comparando com o deck de referência dela (o deck ideal com as cartas que dá para farmar até ali).
+// O app não tem os decks dos adversários: a referência é a régua.
+const cacheRef = new Map();
+function forcaRef(i) {
+  if (!cacheRef.has(i)) { const d = {}; for (const [n, q] of HISTORIA[i].deck) d[n] = (d[n] || 0) + q; cacheRef.set(i, forcaDeck(d)); }
+  return cacheRef.get(i);
+}
+const MARGEM_REF = 0.9;   // 90% da força da referência já conta como "dá conta"
+function situacaoEtapa(i) {
+  const ref = forcaRef(i), alvo = Math.round(ref * MARGEM_REF);
+  const atual = somaQtd(colecao.deck) >= TAM_DECK ? forcaAtual() : 0;
+  const bau = somaQtd(colecao.bau) ? (sugerirDecks()[0].forca || 0) : 0;
+  const s = atual >= alvo ? "ok" : bau >= alvo ? "bau" : "farm";
+  return { s, ref, alvo, atual, bau };
+}
+const SIT = { ok: ["🟢", "Seu deck atual dá conta"], bau: ["🟡", "Dá para melhorar com cartas do seu baú"], farm: ["🔴", "Precisa farmar"] };
 
 // --- Telas ---
 // Abas embaixo da sugestão: o deck inteiro, o que tirar, o que colocar e o que já está certo (para mexer no jogo mais fácil)
@@ -2429,7 +2520,7 @@ async function abrirLeitorBau(modo = "tudo") {
       <input id="lb-topo" type="number" inputmode="numeric" min="0" max="9999" placeholder="?" style="width:84px;font:inherit;padding:6px 8px;border-radius:8px;border:1px solid var(--borda);background:var(--superficie-2);color:var(--texto)"></label>
       <div id="lb-tot" style="font-size:14px"></div><div id="lb-ultimas" class="suave">—</div></div>
     ${modo === "novas" ? `<p class="cam-dica">No jogo, abra o baú (CHEST) e ordene pelas <b>novas</b> (elas ficam no começo, com "New!"). Confira o número do CHEST acima (corrija se estiver errado) e desça a lista devagar até eu avisar que achei todas. Depois toque em <b>Revisar</b>.</p>` : ""}
-    <p class="cam-dica" ${modo === "novas" ? 'style="display:none"' : ""}>No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 29)</span></p>
+    <p class="cam-dica" ${modo === "novas" ? 'style="display:none"' : ""}>No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 30)</span></p>
     <div class="cam-acoes"><button id="lb-recomecar">Recomeçar</button><button class="principal" id="lb-revisar" disabled>Revisar e salvar</button></div>`;
   document.body.append(el);
   document.body.classList.add("sem-rolagem");
@@ -2701,9 +2792,11 @@ document.addEventListener("click", (e) => {
   } else if (t.dataset.vista) mostrarVista(t.dataset.vista);
   else if (t.id === "estou-aqui") { hist.atual = hist.ver; salvarHist(); desenharHistoria(); avisar(`Etapa ${HISTORIA[hist.ver].ordem} marcada como a sua etapa atual.`); }
   else if (t.dataset.sub) { hist.sub = t.dataset.sub; desenharHistoria(); }
+  else if (t.dataset.farmOrd) { hist.farmOrd = t.dataset.farmOrd; desenharHistoria(); }
   else if (t.dataset.alvo) { hist.alvo = Number(t.dataset.alvo); desenharHistoria(); }
   else if (t.dataset.fontes) folhaFontes(t.dataset.fontes.split(",").map(Number).filter((n, j, a) => a.indexOf(n) === j), liberadosAte(vista === "historia" ? hist.ver : (hist.atual ?? 0)));
   else if (t.dataset.farm) { farm.modo = t.dataset.farm; farm.busca = ""; farm.rank = -1; desenharFarm(); }
+  else if (t.dataset.farmIr) { const [d, r] = t.dataset.farmIr.split("|"); farm.modo = "duelista"; farm.busca = d; farm.rank = Number(r); desenharFarm(); window.scrollTo(0, 0); }
   else if (t.dataset.duelista) { farm.busca = t.dataset.duelista; farm.rank = -1; $("#busca-farm").value = farm.busca; desenharFarmRes(); window.scrollTo(0, 0); }
   else if (t.dataset.rank) { farm.rank = Number(t.dataset.rank); desenharFarmRes(); }
 });

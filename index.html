@@ -1168,7 +1168,7 @@ function desenharSlots() {
   const box = $("#cam-slots"); if (!box) return;
   box.innerHTML = CAM.slots.map((s, k) => {
     const st = situacao(s), n = st === "fixa" ? s.fixa : (st === "certa" || st === "duvida") ? s.top[0][1] : null;
-    const rot = { fixa: s.pelaBarra ? "✔ nome" : "✔", certa: "✔", duvida: "?", vazio: "vazio", lendo: "…" }[st];
+    const rot = { fixa: s.mantida ? "ficou" : s.pelaBarra ? "✔ nome" : "✔", certa: "✔", duvida: "?", vazio: "vazio", lendo: "…" }[st];
     return `<button class="cam-slot ${st}" data-cam-slot="${k}">${n ? mini(n, "m54") : `<span class="mini sem m54">${k + 1}</span>`}
       <span class="nm">${n ? esc(CARTAS.get(n).nome) : st === "vazio" ? "vazio" : "—"}</span><span class="selo">${rot}</span></button>`;
   }).join("");
@@ -1430,6 +1430,8 @@ function adicionarPeloNome(n) {
   const ja = CAM.slots.findIndex((s) => s.fixa === n);
   if (ja >= 0 && !CAM.repetir) {   // voltou o cursor numa carta já lida: não duplica
     CAM.ultimoAdd = n;
+    const faltam = CAM.slots.filter((s) => s.fixa === undefined).length;
+    if (CAM.slots[ja].mantida) return camStatus(`${nome} já estava na mão (espaço ${ja + 1}). ${faltam ? `Falta(m) ${faltam} carta(s) nova(s).` : "Mão completa! Confira e toque em “Usar”."}`, faltam ? "" : "ok");
     return camStatus(`${nome} já está no espaço ${ja + 1}. Se você tem outra igual, toque nela e use “Tenho outra igual”.`);
   }
   CAM.repetir = false;
@@ -1479,12 +1481,17 @@ async function abrirCamera() {
       <span class="cam-legenda">Aponte o quadro para a barra preta com o nome da carta</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="cam-slots" id="cam-slots"></div>
-    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 25)</span></p>
+    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 26)</span></p>
     <label class="cam-foto secundario" id="cam-foto">📷 Ou tirar uma foto da mão<input type="file" accept="image/*" capture="environment" id="cam-arquivo" hidden></label>
     <div class="cam-acoes"><button id="cam-recomecar">Recomeçar</button><button class="principal" id="cam-usar" disabled>Usar estas cartas</button></div>`;
   document.body.append(el);
   document.body.classList.add("sem-rolagem");
   Object.assign(CAM, { aberta: true, foto: false, mao: null, ultimoAdd: null, slots: slotsNovos(), candidato: null, contagem: 0, ultimoScan: 0 });
+  // as cartas que ficaram na mão (depois de jogar ou fundir) já entram preenchidas: só falta ler as novas
+  // (com a mão vazia ou cheia, lê tudo de novo)
+  const ficaram = estado.mao.length < TAM_MAO ? estado.mao.slice() : [];
+  ficaram.forEach((n, k) => Object.assign(CAM.slots[k], { fixa: n, pelaBarra: false, mantida: true }));
+  CAM.mantidas = ficaram.length;
   desenharSlots();
   const prontos = carregarLeitor();
   prontos.catch(() => camStatus("Não consegui baixar o leitor de texto. Confira a internet e abra de novo.", "erro"));
@@ -1495,7 +1502,8 @@ async function abrirCamera() {
     const v = $("#cam-v"); v.srcObject = CAM.stream; await v.play().catch(() => {});
     camStatus("Preparando o reconhecimento… (só demora na primeira vez)");
     await prontos;
-    camStatus("Aponte para a barra do nome e passe o cursor do jogo pelas 5 cartas da mão.");
+    camStatus(CAM.mantidas ? `Mantive as ${CAM.mantidas} carta(s) que ficaram na mão. Passe o cursor só pelas ${TAM_MAO - CAM.mantidas} nova(s).`
+      : "Aponte para a barra do nome e passe o cursor do jogo pelas 5 cartas da mão.");
     ciclo();
   } catch (e) {
     $(".cam-video").hidden = true; $("#cam-slots").hidden = true; $(".cam-dica").hidden = true;
@@ -2304,7 +2312,7 @@ async function abrirLeitorBau(modo = "tudo") {
       <input id="lb-topo" type="number" inputmode="numeric" min="0" max="9999" placeholder="?" style="width:84px;font:inherit;padding:6px 8px;border-radius:8px;border:1px solid var(--borda);background:var(--superficie-2);color:var(--texto)"></label>
       <div id="lb-tot" style="font-size:14px"></div><div id="lb-ultimas" class="suave">—</div></div>
     ${modo === "novas" ? `<p class="cam-dica">No jogo, abra o baú (CHEST) e ordene pelas <b>novas</b> (elas ficam no começo, com "New!"). Confira o número do CHEST acima (corrija se estiver errado) e desça a lista devagar até eu avisar que achei todas. Depois toque em <b>Revisar</b>.</p>` : ""}
-    <p class="cam-dica" ${modo === "novas" ? 'style="display:none"' : ""}>No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 25)</span></p>
+    <p class="cam-dica" ${modo === "novas" ? 'style="display:none"' : ""}>No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 26)</span></p>
     <div class="cam-acoes"><button id="lb-recomecar">Recomeçar</button><button class="principal" id="lb-revisar" disabled>Revisar e salvar</button></div>`;
   document.body.append(el);
   document.body.classList.add("sem-rolagem");

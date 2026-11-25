@@ -1479,7 +1479,7 @@ async function abrirCamera() {
       <span class="cam-legenda">Aponte o quadro para a barra preta com o nome da carta</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="cam-slots" id="cam-slots"></div>
-    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 23)</span></p>
+    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 24)</span></p>
     <label class="cam-foto secundario" id="cam-foto">📷 Ou tirar uma foto da mão<input type="file" accept="image/*" capture="environment" id="cam-arquivo" hidden></label>
     <div class="cam-acoes"><button id="cam-recomecar">Recomeçar</button><button class="principal" id="cam-usar" disabled>Usar estas cartas</button></div>`;
   document.body.append(el);
@@ -1918,7 +1918,9 @@ function normDig(v) {
 }
 // compara aceitando o dígito 1 pixel fora do lugar (a lista se mexe e o recorte varia).
 // "lim": se nem o exemplo mais parecido chega perto, devolve null (quadro borrado: melhor não votar)
-function classificarDigDesl(q, lista, k = 5, lim = Infinity) {
+// comPeso: devolve { l: dígito, w: peso do voto }. O peso cai quando o 2º dígito mais parecido está quase tão perto
+// quanto o 1º (leitura em dúvida); leituras limpas valem ~1, duvidosas quase nada.
+function classificarDigDesl(q, lista, k = 5, lim = Infinity, comPeso = false) {
   const qs = [];
   for (const dx of [-1, 0, 1]) for (const dy of [-1, 0, 1]) {
     const o = new Float32Array(DIG_W * DIG_H);
@@ -1930,9 +1932,12 @@ function classificarDigDesl(q, lista, k = 5, lim = Infinity) {
     .sort((a, b) => a[0] - b[0]).slice(0, k);
   if (!ds.length || ds[0][0] > lim) return null;
   const votos = {}; for (const [, l] of ds) votos[l] = (votos[l] || 0) + 1;
-  return +Object.entries(votos).sort((a, b) => b[1] - a[1])[0][0];
+  const l = +Object.entries(votos).sort((a, b) => b[1] - a[1])[0][0];
+  if (!comPeso) return l;
+  const d1 = ds[0][0], d2 = ds.find((x) => x[1] !== ds[0][1])?.[0] ?? 999;
+  return { l, w: Math.max(0.01, (d2 - d1) / (d2 + d1 + 1e-6)) ** 4 };
 }
-const classificarDigBau = (v, lista) => classificarDigDesl(normDig(v), lista, 5, 40);
+const classificarDigBau = (v, lista, comPeso) => classificarDigDesl(normDig(v), lista, 5, 40, comPeso);
 function classificarDig(v, lista, k = 5) {   // vizinhos mais parecidos votam
   const ds = lista.map(([l, e]) => { let d = 0; for (let i = 0; i < e.length; i++) d += (v[i] - e[i]) ** 2; return [d, l]; }).sort((a, b) => a[0] - b[0]).slice(0, k);
   const votos = {}; for (const [, l] of ds) votos[l] = (votos[l] || 0) + 1;
@@ -2078,7 +2083,8 @@ function numerosDaLinha(g, L) {
   const bt = borda - L.x0, ex = exemplosDig();
   const vb = isolarDig(g, borda - 0.5 * bt, L.y0 + 0.36 * h, 0.44 * bt, h * 0.6);
   const vd = amostrarDig(g, borda + 0.27 * bt, L.y0 + 0.38 * h, 0.42 * bt, h * 0.62);
-  return { bau: vb ? classificarDigBau(vb, ex.bau) : null, deck: classificarDigDesl(vd, ex.deck) };
+  const b = vb ? classificarDigBau(vb, ex.bau, true) : null, dk = classificarDigDesl(vd, ex.deck, 5, Infinity, true);
+  return { bau: b ? b.l : null, deck: dk ? dk.l : null, pb: b ? b.w : 0, pd: dk ? dk.w : 0 };
 }
 // 4) Um quadro da câmera: devolve [{ n, bau, deck, foto }]
 // Dois leitores trabalhando ao mesmo tempo (celulares têm vários núcleos): o dobro de quadros por segundo
@@ -2152,7 +2158,7 @@ async function lerQuadroBau(fonte, leitor) {
         f.getContext("2d").drawImage(tira, 0, i * AF, largF, AF, 0, 0, largF, AF);
         try { foto = f.toDataURL("image/jpeg", 0.7); } catch (e) {}
       }
-      cartas.push({ n: a.c.n, d: a.d, bau: nums[i]?.bau ?? null, deck: nums[i]?.deck ?? null, foto, linha: i });
+      cartas.push({ n: a.c.n, d: a.d, bau: nums[i]?.bau ?? null, deck: nums[i]?.deck ?? null, pb: nums[i]?.pb ?? 1, pd: nums[i]?.pd ?? 1, foto, linha: i });
     });
   }
   return { linhas: linhas.length, cartas, total };
@@ -2180,7 +2186,8 @@ function apagarLB() {
   try { localStorage.removeItem(LB_CHAVE); localStorage.removeItem(LB_FOTOS); } catch (e) {}
 }
 const maisVotado = (o) => { const e = Object.entries(o || {}); return e.length ? +e.sort((a, b) => b[1] - a[1])[0][0] : null; };
-const certeza = (o) => { const v = Object.values(o || {}); const t = v.reduce((s, x) => s + x, 0); return t ? Math.max(...v) / t : 0; };
+// certeza = parte dos votos que o número vencedor levou; se quase não há leitura limpa (soma dos pesos < 0,9), conta como incerto
+const certeza = (o) => { const v = Object.values(o || {}); const t = v.reduce((s, x) => s + x, 0); return t ? (Math.max(...v) / t) * (t < 0.9 ? 0.5 : 1) : 0; };
 // No modo "cartas novas": se o número que já estava salvo ainda aparece em boa parte das leituras, ele fica
 // (a maioria das cartas não muda; isso evita trocar um número certo por uma leitura borrada)
 function votoComBase(votos, base) {
@@ -2208,14 +2215,15 @@ const mudouNaLeitura = (x) => LB.modo === "novas" && LB.base && ((x.bau ?? LB.ba
 function juntarQuadro(lidas, total) {
   let novas = 0;
   if (total) LB.topo[total] = (LB.topo[total] || 0) + 1;
-  for (const { n, d, bau, deck, foto } of lidas) {
+  for (const { n, d, bau, deck, pb = 1, pd = 1, foto } of lidas) {
     let x = LB.cartas.get(n);
     if (!x) { x = { vistas: 0, vb: {}, vd: {}, d: 1 }; LB.cartas.set(n, x); LB.ordem.push(n); }
     const antes = x.vistas >= 2 || x.d <= 0.05;
     x.vistas++; x.d = Math.min(x.d ?? 1, d);
     if (!antes && (x.vistas >= 2 || x.d <= 0.05)) novas++;
-    if (bau !== null) x.vb[bau] = (x.vb[bau] || 0) + 1;
-    if (deck !== null) x.vd[deck] = (x.vd[deck] || 0) + 1;
+    // cada foto vota com o seu peso: uma leitura limpa vale ~1, uma borrada/duvidosa quase nada
+    if (bau !== null) x.vb[bau] = (x.vb[bau] || 0) + pb;
+    if (deck !== null) x.vd[deck] = (x.vd[deck] || 0) + pd;
     // guarda a foto da linha (a 1ª e depois uma mais recente, que costuma estar mais no meio da tela)
     if (foto) { LB.fotos.set(n, foto); LB.fotosMudou = true; }
   }
@@ -2260,7 +2268,7 @@ async function abrirLeitorBau(modo = "tudo") {
       <input id="lb-topo" type="number" inputmode="numeric" min="0" max="9999" placeholder="?" style="width:84px;font:inherit;padding:6px 8px;border-radius:8px;border:1px solid var(--borda);background:var(--superficie-2);color:var(--texto)"></label>
       <div id="lb-tot" style="font-size:14px"></div><div id="lb-ultimas" class="suave">—</div></div>
     ${modo === "novas" ? `<p class="cam-dica">No jogo, abra o baú (CHEST) e ordene pelas <b>novas</b> (elas ficam no começo, com "New!"). Confira o número do CHEST acima (corrija se estiver errado) e desça a lista devagar até eu avisar que achei todas. Depois toque em <b>Revisar</b>.</p>` : ""}
-    <p class="cam-dica" ${modo === "novas" ? 'style="display:none"' : ""}>No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 23)</span></p>
+    <p class="cam-dica" ${modo === "novas" ? 'style="display:none"' : ""}>No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 24)</span></p>
     <div class="cam-acoes"><button id="lb-recomecar">Recomeçar</button><button class="principal" id="lb-revisar" disabled>Revisar e salvar</button></div>`;
   document.body.append(el);
   document.body.classList.add("sem-rolagem");
@@ -2322,13 +2330,34 @@ function motivoDuvida(x) {
   if (x.cd < 0.75) m.push("número do deck incerto");
   return m.join(", ");
 }
+// Cartas para conferir por causa das regras do jogo:
+// - no modo "cartas novas", o total de uma carta (baú + deck) não diminui;
+// - se a soma do baú não bate com o CHEST (ou a do deck com 40), as leituras menos seguras são as suspeitas.
+function suspeitasLB() {
+  const r = resumoContagem(), m = new Map();
+  const juntar = (n, txt) => m.set(n, m.has(n) ? `${m.get(n)}, ${txt}` : txt);
+  const livre = (x) => !x.conferida && !LB.cartas.get(x.n)?.fixB && !LB.cartas.get(x.n)?.fixD;
+  if (LB.modo === "novas" && LB.base) for (const x of r.ok) {
+    const antes = (LB.base.fora[x.n] || 0) + (LB.base.deck[x.n] || 0), agora = (x.bau ?? LB.base.fora[x.n] ?? 0) + x.deck;
+    if (livre(x) && agora < antes) juntar(x.n, `diminuiu de ${antes} para ${agora} (no jogo não diminui)`);
+  }
+  const apontar = (dif, chave, txt) => {
+    if (!dif) return;
+    const cand = r.ok.filter((x) => livre(x) && x[chave] < 0.98).sort((a, b) => a[chave] - b[chave]).slice(0, Math.min(6, Math.max(3, Math.abs(dif))));
+    for (const x of cand) juntar(x.n, txt);
+  };
+  if (r.tj !== null) apontar(r.nb - r.tj, "cb", "o total do baú não bate: confira o número do baú");
+  apontar(r.nd - DECK_JOGO, "cd", "o total do deck não bate: confira o número do deck");
+  return m;
+}
 function abrirRevisao() {
   fecharCamera();
   let el = $("#rev");
   if (!el) { el = document.createElement("div"); el.id = "rev"; el.className = "cam"; document.body.append(el); }
   document.body.classList.add("sem-rolagem");
   // a lista de "confira" fica fixa enquanto a revisão está aberta: mexer no − e + não tira a carta do lugar
-  LB.revDuv = new Set(cartasConfirmadas().filter((x) => LB.modo === "novas" ? mudouNaLeitura(x) : motivoDuvida(x)).map((x) => x.n));
+  LB.revSusp = suspeitasLB();
+  LB.revDuv = new Set(cartasConfirmadas().filter((x) => LB.revSusp.has(x.n) || (LB.modo === "novas" ? mudouNaLeitura(x) : motivoDuvida(x))).map((x) => x.n));
   desenharRevisao();
 }
 function fecharRevisao() { $("#rev")?.remove(); document.body.classList.remove("sem-rolagem"); }
@@ -2336,7 +2365,9 @@ function desenharRevisao() {
   const el = $("#rev"); if (!el) return;
   const r = resumoContagem();
   const duv = LB.revDuv || new Set(), novas = LB.modo === "novas" && LB.base;
-  const itens = r.ok.map((x) => ({ ...x, motivo: duv.has(x.n) && !x.conferida ? (novas ? (LB.base.fora[x.n] == null && !LB.base.deck[x.n] ? "carta nova" : "mudou") : motivoDuvida({ ...x, conferida: false })) : "" }));
+  const susp = LB.revSusp || new Map();
+  const motivoDe = (x) => [novas ? (LB.base.fora[x.n] == null && !LB.base.deck[x.n] ? "carta nova" : mudouNaLeitura(x) ? "mudou" : "") : motivoDuvida({ ...x, conferida: false }), susp.get(x.n) || ""].filter(Boolean).join(", ");
+  const itens = r.ok.map((x) => ({ ...x, motivo: duv.has(x.n) && !x.conferida ? motivoDe(x) : "" }));
   const duvidas = itens.filter((x) => duv.has(x.n)), certas = itens.filter((x) => !duv.has(x.n));
   const fora = LB.ordem.filter((n) => LB.cartas.get(n)?.fora);
   const confirmadas = new Set(r.ok.map((x) => x.n));

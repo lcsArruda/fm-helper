@@ -1479,7 +1479,7 @@ async function abrirCamera() {
       <span class="cam-legenda">Aponte o quadro para a barra preta com o nome da carta</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="cam-slots" id="cam-slots"></div>
-    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 16)</span></p>
+    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 17)</span></p>
     <label class="cam-foto secundario" id="cam-foto">📷 Ou tirar uma foto da mão<input type="file" accept="image/*" capture="environment" id="cam-arquivo" hidden></label>
     <div class="cam-acoes"><button id="cam-recomecar">Recomeçar</button><button class="principal" id="cam-usar" disabled>Usar estas cartas</button></div>`;
   document.body.append(el);
@@ -2101,7 +2101,7 @@ async function abrirLeitorBau() {
       <span class="cam-legenda">Mostre a TV inteira, com a lista do baú</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="bloco"><span class="rot">Lidas: <b id="lb-n">0</b> cartas diferentes</span><div id="lb-tot" style="font-size:14px"></div><div id="lb-ultimas" class="suave">—</div></div>
-    <p class="cam-dica">No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 16)</span></p>
+    <p class="cam-dica">No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 17)</span></p>
     <div class="cam-acoes"><button id="lb-recomecar">Recomeçar</button><button class="principal" id="lb-revisar" disabled>Revisar e salvar</button></div>`;
   document.body.append(el);
   document.body.classList.add("sem-rolagem");
@@ -2175,6 +2175,8 @@ function desenharRevisao() {
   const itens = r.ok.map((x) => ({ ...x, motivo: duv.has(x.n) && !x.conferida ? motivoDuvida({ ...x, conferida: false }) : "" }));
   const duvidas = itens.filter((x) => duv.has(x.n)), certas = itens.filter((x) => !duv.has(x.n));
   const fora = LB.ordem.filter((n) => LB.cartas.get(n)?.fora);
+  const confirmadas = new Set(r.ok.map((x) => x.n));
+  const umaVez = LB.ordem.filter((n) => !confirmadas.has(n) && !LB.cartas.get(n)?.fora && (LB.cartas.get(n)?.d ?? 1) <= 0.2);
   const item = (x) => `<div class="bloco rev-item">
       ${LB.fotos.get(x.n) ? `<img class="rev-foto" src="${LB.fotos.get(x.n)}" alt="Foto da linha no jogo">` : `<div class="suave" style="font-size:12.5px">(sem foto)</div>`}
       <div class="rev-linha"><span class="nm">${esc(CARTAS.get(x.n).nome)} <small class="num">#${String(x.n).padStart(3, "0")}</small></span>
@@ -2192,9 +2194,14 @@ function desenharRevisao() {
         <div id="rev-achadas" class="lista" style="margin-top:6px"></div></div>` : ""}</div>`;
   el.innerHTML = `
     <div class="cam-topo"><b>Revisar a leitura</b><button id="rev-fechar">✕ Fechar</button></div>
-    <div class="bloco"><span class="rot">${r.ok.length} cartas diferentes</span><div style="font-size:14px">${r.html}</div>
-      ${r.bate ? `<p style="margin:6px 0 0;color:var(--verde)">Tudo bateu com o jogo.</p>` : `<p class="suave" style="margin:6px 0 0;font-size:12.5px">Compare cada foto com o número ao lado e use − e + até ficar igual (pode tocar quantas vezes precisar; nada é salvo antes de tocar em <b>Salvar baú e deck</b>). Se faltar carta, volte para a câmera e passe de novo por onde ela está, ou adicione depois pela busca.</p>`}</div>
+    <div class="bloco" style="position:sticky;top:calc(-12px - env(safe-area-inset-top, 0px));z-index:2;box-shadow:0 6px 12px rgba(0,0,0,.35)"><span class="rot">${r.ok.length} cartas diferentes</span><div style="font-size:14px">${r.html}</div>
+      ${r.bate ? `<p style="margin:6px 0 0;color:var(--verde)">Tudo bateu com o jogo.</p>` : ""}</div>
+    <div>${r.bate ? "" : `<p class="suave" style="margin:0;font-size:12.5px">Compare cada foto com o número ao lado e use − e + até ficar igual (pode tocar quantas vezes precisar; nada é salvo antes de tocar em <b>Salvar baú e deck</b>). Se faltar carta, volte para a câmera e passe de novo por onde ela está, ou adicione depois pela busca.</p>`}</div>
     ${duvidas.length ? `<h3 style="margin:4px 0 0">Confira estas primeiro (${duvidas.length})</h3><p class="suave" style="margin:0;font-size:12.5px">Acerte os números com − e +. Quando estiver certo, toque em <b>✔ Está certo</b> e ela sai daqui. Se o nome estiver errado, toque em <b>✎ Carta errada</b>.</p>${duvidas.map(item).join("")}` : ""}
+    ${umaVez.length ? `<h3 style="margin:4px 0 0">Vistas só uma vez (${umaVez.length})</h3><p class="suave" style="margin:0;font-size:12.5px">O app viu estas cartas de relance e não teve certeza. Olhe a foto: se você tem a carta, toque em <b>✔ Eu tenho</b>. Se não, pode deixar: elas não entram no baú.</p>${umaVez.map((n) => `<div class="bloco rev-item">
+      ${LB.fotos.get(n) ? `<img class="rev-foto" src="${LB.fotos.get(n)}" alt="Foto da linha no jogo">` : `<div class="suave" style="font-size:12.5px">(sem foto)</div>`}
+      <div class="rev-linha"><span class="nm">${esc(CARTAS.get(n).nome)} <small class="num">#${String(n).padStart(3, "0")}</small></span></div>
+      <div class="col-qtd" style="justify-content:flex-start;flex-wrap:wrap;gap:6px"><button class="btn-icone" data-rev="tenho:${n}">✔ Eu tenho</button></div></div>`).join("")}` : ""}
     ${certas.length ? `<h3 style="margin:4px 0 0">Lidas com segurança (${certas.length})</h3>${certas.map(item).join("")}` : ""}
     ${fora.length ? `<p class="suave" style="font-size:12.5px">Tiradas por você: ${fora.map((n) => `<button class="btn-icone" data-rev="volta:${n}">↩ ${esc(CARTAS.get(n).nome)}</button>`).join(" ")}</p>` : ""}
     <div class="cam-acoes" style="position:sticky;bottom:0;background:var(--fundo);padding-top:8px"><button id="rev-camera">📷 Voltar à câmera</button><button class="principal" id="rev-salvar">Salvar baú e deck</button></div>`;
@@ -2208,6 +2215,7 @@ function mexerRevisao(acao) {
   else if (op === "ok") { x.conferida = true; LB.revDuv?.delete(n); }   // aprovada: sai do quadro "confira"
   else if (op === "x") x.fora = true;
   else if (op === "volta") x.fora = false;
+  else if (op === "tenho") { x.manual = true; LB.revDuv?.add(n); }
   else if (op === "trocar") { LB.revTroca = LB.revTroca === n ? null : n; LB.revBusca = ""; }
   else if (op === "para") { trocarCartaLida(n, +ds); LB.revTroca = null; }
   guardarLB(); desenharRevisao();

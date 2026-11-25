@@ -704,19 +704,28 @@ function desenharHistoria() {
   } else if (hist.sub === "deck") {
     if (!temBau) corpo = `<div class="vazio">Primeiro coloque no app as cartas que você tem (aba Minhas cartas → Baú). Aí eu calculo quais cartas vale a pena farmar.</div>`;
     else {
-      const lista = cartasParaFarmar(lib).slice();
+      const plano = planoPronto(lib, () => { if (vista === "historia" && hist.sub === "deck") desenharHistoria(); });
+      if (!plano) corpo = `<div class="vazio">Calculando o melhor deck que dá para montar farmando nesta etapa… (alguns segundos)</div>`;
+      else {
+      const lista = plano.itens.slice();
       if (hist.farmOrd === "ganho") lista.sort((a, b) => b.g - a.g || b.porVit - a.porVit);
       const top = lista.slice(0, 20);
-      corpo = `<p class="suave" style="margin:0">Cartas que dá para farmar ${ehAtual ? "agora" : "nesta etapa"} e que deixariam o seu melhor deck (montado com o seu baú) mais forte. O ganho é na mesma “força da mão” da aba Minhas cartas, com <b>1 cópia a mais</b> de cada carta.</p>
+      corpo = `<div class="bloco"><span class="rot">Deck dos sonhos nesta etapa</span>
+          <p>Juntando as suas cartas com as que dá para farmar ${ehAtual ? "agora" : "nesta etapa"}, o melhor deck chega a <b>força ${plano.forcaSonho}</b> (o seu melhor deck hoje: ${plano.forcaHoje}).</p>
+          <p class="suave" style="font-size:12.5px">Montei o deck inteiro de novo, procurando as melhores combinações de fusão (de 2 a 5 cartas) entre as cartas que você tem e as que dá para farmar. Ficam de fora cartas que caem com menos de 0,5% (centenas de vitórias).</p></div>
+        ${plano.comb.length ? `<div class="bloco"><span class="rot">Combinações que o farm libera</span>
+          ${plano.comb.map((f) => `<div class="par-col" style="flex-wrap:wrap">${f.cartas.map((c) => mini(c.n, "m30")).join("+")}= ${mini(f.r.n, "m30")}<span><b>${esc(f.r.nome)}</b> <span class="num">${f.r.atk}</span><br><small class="suave">${f.cartas.map((c) => `${esc(c.nome)}${plano.falta[c.n] ? " (farmar)" : ""}`).join(" + ")}</small></span></div>`).join("")}</div>` : ""}
+        <p class="suave" style="margin:0">Cartas para farmar. O número verde é <b>quanto o deck dos sonhos perde sem ela</b>, então as duas peças de uma combinação valem o que a combinação vale.</p>
         <div class="chips">${[["vit", "Melhora mais rápido"], ["ganho", "Maior ganho"]].map(([k, t]) => `<button class="chip" data-farm-ord="${k}" aria-pressed="${(hist.farmOrd || "vit") === k}">${t}</button>`).join("")}</div>
-        <p class="suave" style="margin:0;font-size:12.5px">${(hist.farmOrd || "vit") === "vit" ? "“Melhora mais rápido” = ganho × chance de cair: o que mais melhora o deck por vitória no Duelo Livre." : "“Maior ganho” = a carta que mais melhora o deck, mesmo que demore para cair."}</p>
+        <p class="suave" style="margin:0;font-size:12.5px">${(hist.farmOrd || "vit") === "vit" ? "“Melhora mais rápido” = valor × chance de cair: o que mais melhora o deck por vitória no Duelo Livre." : "“Maior ganho” = a carta que mais pesa no deck dos sonhos, mesmo que demore para cair."}</p>
         <div class="linhas">${top.map((x) => `<button class="linha com-img" data-fontes="${x.c.n}">
-            <span class="th">${mini(x.c.n, "m44")}${colecao.bau[x.c.n] ? `<span class="qtd-selo num">${Math.min(colecao.bau[x.c.n], MAX_COPIAS)}x</span>` : ""}</span>
+            <span class="th">${mini(x.c.n, "m44")}<span class="qtd-selo num">+${x.q}</span></span>
             <span class="nm">${esc(x.c.nome)} <small class="num">#${String(x.c.n).padStart(3, "0")}</small></span>
             <span class="vl num lib">+${x.g}</span>
-            <span class="det">${monstro(x.c) ? `${x.c.atk}/${x.c.def} · ` : `${esc(x.c.tipo)} · `}${colecao.bau[x.c.n] ? `você tem ${colecao.bau[x.c.n]}` : "você não tem"}<br>${txtFonte(x.f)} · ~${x.vits} vitórias em média</span></button>`).join("")
-          || `<div class="vazio">Nenhuma carta liberada nesta etapa deixa o seu melhor deck mais forte. Avance na história para liberar novos duelistas.</div>`}</div>
+            <span class="det">${monstro(x.c) ? `${x.c.atk}/${x.c.def} · ` : `${esc(x.c.tipo)} · `}farmar ${x.q} (você tem ${colecao.bau[x.c.n] || 0})<br>${txtFonte(x.f)} · ~${x.vits} vitórias em média por cópia</span></button>`).join("")
+          || `<div class="vazio">Nenhuma carta liberada nesta etapa deixa o seu deck mais forte. Avance na história para liberar novos duelistas.</div>`}</div>
         <p class="suave" style="margin:0;font-size:12.5px">Toque numa carta para ver todos os lugares onde ela pode ser farmada. Magias e armadilhas ficam de fora: o app ainda não mede a força delas.</p>`;
+      }
     }
   } else if (hist.sub === "fusoes") {
     if (!e.alvos.length) corpo = `<div class="vazio">Nenhuma fusão-chave nesta etapa.</div>`;
@@ -779,10 +788,12 @@ function farmsRecomendados(lib) {
 function blocoFarmsAgora() {
   if (hist.atual === null) return `<div class="bloco"><span class="rot">Farms para fazer agora</span><p class="suave">Marque a sua etapa na aba História (“Estou aqui”) para eu dizer quais farms deixam o seu deck mais forte agora.</p></div>`;
   if (!somaQtd(colecao.bau)) return `<div class="bloco"><span class="rot">Farms para fazer agora</span><p class="suave">Coloque as suas cartas no app (Minhas cartas → Baú) para eu calcular quais farms valem a pena.</p></div>`;
-  const gs = farmsRecomendados(liberadosAte(hist.atual));
+  const lib = liberadosAte(hist.atual), plano = planoPronto(lib, () => { if (vista === "farm") desenharFarmRes(); });
+  if (!plano) return `<div class="bloco"><span class="rot">Farms para fazer agora</span><p class="suave">Calculando o melhor deck que dá para montar farmando… (alguns segundos)</p></div>`;
+  const gs = farmsRecomendados(lib);
   if (!gs.length) return `<div class="bloco"><span class="rot">Farms para fazer agora</span><p class="suave">Nenhum duelista liberado na sua etapa dá cartas que melhorem o seu melhor deck. Avance na história para liberar novos.</p></div>`;
   return `<div class="bloco"><span class="rot">Farms para fazer agora (etapa ${HISTORIA[hist.atual].ordem})</span>
-      <p class="suave" style="font-size:12.5px">Em ordem: os que mais melhoram o seu melhor deck por vitória (mesma “força da mão” da aba Minhas cartas). Toque para ver tudo o que o duelista dá.</p></div>
+      <p class="suave" style="font-size:12.5px">Em ordem: os que mais aproximam você do deck dos sonhos desta etapa por vitória (as cartas e combinações da aba História → Para farmar). Toque para ver tudo o que o duelista dá.</p></div>
     <div class="linhas">${gs.map((g, k) => `<button class="linha" style="grid-template-columns:1fr auto" data-farm-ir="${esc(g.d)}|${RANKS.indexOf(g.r)}">
       <span class="nm">${k + 1}. ${esc(g.d)} · rank ${esc(g.r)}</span><span class="vl num lib">+${g.v.toFixed(1)}/vitória</span>
       <span class="det" style="grid-column:1/-1">${g.itens.slice(0, 4).map((it) => `${esc(it.x.c.nome)} (+${it.x.g}, ${pct(it.t)})`).join(" · ")}${g.itens.length > 4 ? ` · e mais ${g.itens.length - 4}` : ""}</span></button>`).join("")}</div>
@@ -1543,7 +1554,7 @@ async function abrirCamera() {
       <span class="cam-legenda">Aponte o quadro para a barra preta com o nome da carta</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="cam-slots" id="cam-slots"></div>
-    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 31)</span></p>
+    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 32)</span></p>
     <label class="cam-foto secundario" id="cam-foto">📷 Ou tirar uma foto da mão<input type="file" accept="image/*" capture="environment" id="cam-arquivo" hidden></label>
     <div class="cam-acoes"><button id="cam-recomecar">Recomeçar</button><button class="principal" id="cam-usar" disabled>Usar estas cartas</button></div>`;
   document.body.append(el);
@@ -1871,13 +1882,18 @@ function otimizarDeck(base, disp, fixos) {
   const d = {}; slots.forEach((n) => d[n] = (d[n] || 0) + 1);
   return d;
 }
-function montarSugestoes() {
+function dispDoBau() {
   const disp = new Map();
   for (const [k, q] of Object.entries(colecao.bau)) { const c = CARTAS.get(+k); if (c && q > 0) disp.set(c.n, Math.min(q, MAX_COPIAS)); }
+  return disp;
+}
+function montarSugestoes() { return melhorDeck(dispDoBau()); }
+// disp: cartas que podem entrar (n -> cópias); dispEss: de onde saem Raigeki e o campo (só o que você já tem)
+function melhorDeck(disp, dispEss = disp, soFusoes = false) {
   const cartas = [...disp.keys()].map((n) => CARTAS.get(n));
   const mons = cartas.filter(monstro), eqs = cartas.filter((c) => c.tipo === "Equipamento");
   const sugestoes = [];
-  const ess = essenciais(disp), LIM = TAM_DECK - somaQtd(ess);   // Raigeki e companhia entram primeiro
+  const ess = essenciais(dispEss), LIM = TAM_DECK - somaQtd(ess);   // Raigeki e companhia entram primeiro
 
   // 1) Mais fortes: os monstros de ATK mais alto + equipamentos que servem em vários deles
   {
@@ -1938,11 +1954,11 @@ function montarSugestoes() {
   }
   // As duas montagens acima são só o ponto de partida: o deck final sai do teste em mãos sorteadas
   // (antes, a conta por pontos tirava dragões e trovões, que fundem muito bem entre si).
-  const prontos = sugestoes.map((s) => comCampo({ ...s.deck, ...ess }, disp));
+  const prontos = sugestoes.map((s) => comCampo({ ...s.deck, ...ess }, dispEss));
   if (somaQtd(prontos[1]) < TAM_DECK) return [{ ...sugestoes[1], deck: prontos[1], resumo: resumoDeck(prontos[1]), forca: forcaDeck(prontos[1]) }];
   // parte das duas montagens e fica com a que chegar mais longe
   let deck = null, melhorF = -1;
-  for (const p of prontos) {
+  for (const p of soFusoes ? [prontos[1]] : prontos) {
     if (somaQtd(p) < TAM_DECK) continue;
     // magias (Raigeki, campo…) ficam: o teste só mede monstros e equipamentos
     const fixos = {}; for (const [n, q] of Object.entries(p)) { const c = CARTAS.get(+n); if (!monstro(c) && c.tipo !== "Equipamento") fixos[n] = q; }
@@ -1953,47 +1969,83 @@ function montarSugestoes() {
     deck, resumo: resumoDeck(deck), forca: melhorF }];
 }
 
-// --- O que farmar: quanto cada carta que dá para farmar deixaria o seu melhor deck mais forte ---
-// Usa a mesma "força da mão" do melhor deck: para cada carta, tenta pôr 1 cópia a mais no lugar de cada carta
-// do melhor deck e fica com a troca que mais aumenta a força. lib = duelistas liberados (onde dá para farmar).
-const cacheFarm = new Map();
-function cartasParaFarmar(lib) {
-  const chave = JSON.stringify(colecao.bau) + "|" + [...lib].sort().join();
-  if (cacheFarm.has(chave)) return cacheFarm.get(chave);
-  const own = {}; for (const [k, q] of Object.entries(colecao.bau)) if (q > 0) own[k] = Math.min(q, MAX_COPIAS);
-  const base = somaQtd(own) ? sugerirDecks()[0].deck : {};
-  const cont = {}; for (const [n, q] of Object.entries(base)) cont[n] = q;
-  // candidatas: monstros e equipamentos que algum duelista liberado dá, que você ainda não tem 3 e cujas cópias já estão todas no deck
-  const cand = LISTA.filter((c) => (monstro(c) || c.tipo === "Equipamento") && (own[c.n] || 0) < MAX_COPIAS && (cont[c.n] || 0) >= (own[c.n] || 0) && melhor(c.n, lib));
-  const res = [];
-  const slots = slotsDe(base);
-  if (slots.length < TAM_DECK) {
-    // deck incompleto: a carta entra num espaço vazio
-    const f0 = slots.length >= 5 ? forcaDeck(base) : 0;
-    for (const c of cand) { const d = { ...base, [c.n]: (base[c.n] || 0) + 1 }; const g = forcaDeck(d) - f0; if (g > 0) res.push({ c, g }); }
-  } else {
-    const N = 600, maos = maosSorteadas(slots.length, N, 11), porSlot = slots.map(() => []);
-    maos.forEach((a, h) => a.forEach((i) => porSlot[i].push(h)));
-    const val = maos.map((a) => forcaMao(a.map((j) => slots[j])));
-    // um lugar por carta diferente do deck (cópias iguais dão quase o mesmo resultado); magias não saem
-    const lugares = []; const vistos = new Set();
-    slots.forEach((n, i) => { const c = CARTAS.get(n); if (!vistos.has(n) && (monstro(c) || c.tipo === "Equipamento")) { vistos.add(n); lugares.push(i); } });
-    for (const c of cand) {
-      let best = 0;
-      for (const i of lugares) {
-        const velho = slots[i]; slots[i] = c.n; let d = 0;
-        for (const h of porSlot[i]) d += forcaMao(maos[h].map((j) => slots[j])) - val[h];
-        slots[i] = velho; if (d > best) best = d;
-      }
-      const g = Math.round(best / N); if (g >= 3) res.push({ c, g });
-    }
+// --- O que farmar: olhando o deck inteiro ---
+// 1) Monta o "deck dos sonhos" da etapa: o melhor deck possível juntando as suas cartas com as que dá para farmar
+//    (até 3 de cada), pelo mesmo teste em mãos sorteadas do melhor deck — que já conta fusões de 2 a 5 cartas.
+// 2) Para cada carta que precisa farmar, mede quanto o deck dos sonhos perde sem ela (colocando no lugar a melhor carta
+//    que você já tem). Assim as duas peças de uma combinação (A + B = monstro forte) valem o que a combinação vale,
+//    mesmo que nenhuma das duas sirva sozinha.
+const cacheFarm = new Map(), MIN_CHANCE = 10;
+const chaveFarm = (lib) => JSON.stringify(colecao.bau) + "|" + [...lib].sort().join();
+// a conta leva alguns segundos no celular: roda depois de desenhar a tela ("Calculando…") e redesenha quando acaba
+let farmPendente = null;
+function planoPronto(lib, redesenhar) {
+  const k = chaveFarm(lib);
+  if (cacheFarm.has(k)) return cacheFarm.get(k);
+  if (farmPendente !== k) {
+    farmPendente = k;
+    setTimeout(() => { try { planoDeFarm(lib); } finally { farmPendente = null; redesenhar(); } }, 50);
   }
-  // fonte mais fácil (maior chance) entre os liberados; valor por vitória = ganho × chance
-  for (const x of res) { x.f = melhor(x.c.n, lib); x.porVit = x.g * x.f.t / 2048; x.vits = Math.round(2048 / x.f.t); }
-  res.sort((a, b) => b.porVit - a.porVit || b.g - a.g);
+  return null;
+}
+function planoDeFarm(lib) {
+  const chave = chaveFarm(lib);
+  if (cacheFarm.has(chave)) return cacheFarm.get(chave);
+  const { RES, ATK } = tabelasForca();
+  const own = dispDoBau(), atual = own.size ? sugerirDecks()[0] : null;
+  // cartas farmáveis (monstros e equipamentos dados por duelistas liberados)
+  // (só as que caem com pelo menos 10/2048 = 0,5%: mais raro que isso leva centenas de vitórias)
+  const farmaveis = LISTA.filter((c) => (monstro(c) || c.tipo === "Equipamento") && (own.get(c.n) || 0) < MAX_COPIAS && (melhor(c.n, lib)?.t || 0) >= MIN_CHANCE);
+  // poda (para a conta caber no celular): fica a carta forte sozinha, ou que funde (direto ou em cadeia) num monstro forte
+  const T = Math.max(1200, Math.round((atual?.forca || 1500) * 0.75));
+  const pool = [...own.keys(), ...farmaveis.map((c) => c.n)].filter((n, k, a) => a.indexOf(n) === k);
+  const poolM = pool.filter((n) => monstro(CARTAS.get(n)));
+  const bomRes = new Map();   // resultado -> leva a um monstro forte (ele mesmo ou fundindo com mais uma do pool)
+  const ehBom = (r) => { if (!bomRes.has(r)) { let b = ATK[r] >= T; for (let k = 0; !b && k < poolM.length; k++) { const r2 = RES[r * 1024 + poolM[k]]; if (r2 && ATK[r2] >= T && ATK[r2] > ATK[r]) b = true; } bomRes.set(r, b); } return bomRes.get(r); };
+  const util = farmaveis.filter((c) => {
+    if (c.tipo === "Equipamento") return true;
+    if (c.atk >= T) return true;
+    for (const m of poolM) { const r = RES[c.n * 1024 + m]; if (r && ATK[r] > Math.max(c.atk, ATK[m]) && ehBom(r)) return true; }
+    return false;
+  });
+  const disp = new Map(own); for (const c of util) disp.set(c.n, MAX_COPIAS);
+  const sonho = melhorDeck(disp, own, true)[0];
+  // o que farmar: cópias do deck dos sonhos além das que você já tem
+  const falta = {}; for (const [n, q] of Object.entries(sonho.deck)) { const a = own.get(+n) || 0; if (q > a) falta[n] = q - a; }
+  // valor de cada carta: quanto o deck perde sem as cópias farmadas dela
+  const slots = slotsDe(sonho.deck), N = 600, maos = maosSorteadas(slots.length, N, 13), porSlot = slots.map(() => []);
+  maos.forEach((a, h) => a.forEach((i) => porSlot[i].push(h)));
+  const forca = (h) => forcaMao(maos[h].map((j) => slots[j]));
+  const val = maos.map((_, h) => forca(h));
+  const cont = {}; slots.forEach((n) => cont[n] = (cont[n] || 0) + 1);
+  const ownCands = [...own.keys()].filter((n) => { const c = CARTAS.get(n); return monstro(c) || c.tipo === "Equipamento"; });
+  const itens = [];
+  for (const [n, q] of Object.entries(falta)) {
+    const idx = slots.map((x, i) => x === +n ? i : -1).filter((i) => i >= 0).slice(0, q);
+    const salvo = slots.slice(), afet = new Set(idx.flatMap((i) => porSlot[i]));
+    const usados = { ...cont };
+    for (const i of idx) {   // troca cada cópia farmada pela melhor carta que você já tem
+      let bestN = null, bestT = -Infinity;
+      for (const m of ownCands) {
+        if (m === +n || (usados[m] || 0) >= own.get(m)) continue;
+        slots[i] = m; let t = 0; for (const h of porSlot[i]) t += forca(h);
+        if (t > bestT) { bestT = t; bestN = m; }
+      }
+      slots[i] = bestN ?? 0; if (bestN !== null) usados[bestN] = (usados[bestN] || 0) + 1;
+    }
+    let perda = 0; for (const h of afet) perda += val[h] - forca(h);
+    for (let i = 0; i < slots.length; i++) slots[i] = salvo[i];
+    const g = Math.round(perda / N);
+    if (g > 0) { const c = CARTAS.get(+n), f = melhor(c.n, lib); itens.push({ c, g, q, f, porVit: g * f.t / 2048, vits: Math.round(2048 / f.t) }); }
+  }
+  itens.sort((a, b) => b.porVit - a.porVit || b.g - a.g);
+  // combinações de fusão do deck dos sonhos que usam alguma carta para farmar
+  const comb = melhoresFusoes(resumoDeck(sonho.deck)).filter((f) => f.cartas.some((c) => falta[c.n]));
+  const res = { itens, comb, falta, forcaSonho: sonho.forca, forcaHoje: atual?.forca || 0, sonho: sonho.deck };
   cacheFarm.set(chave, res);
   return res;
 }
+const cartasParaFarmar = (lib) => planoDeFarm(lib).itens;
 // Situação do deck numa etapa, comparando com o deck de referência dela (o deck ideal com as cartas que dá para farmar até ali).
 // O app não tem os decks dos adversários: a referência é a régua.
 const cacheRef = new Map();
@@ -2540,7 +2592,7 @@ async function abrirLeitorBau(modo = "tudo") {
       <input id="lb-topo" type="number" inputmode="numeric" min="0" max="9999" placeholder="?" style="width:84px;font:inherit;padding:6px 8px;border-radius:8px;border:1px solid var(--borda);background:var(--superficie-2);color:var(--texto)"></label>
       <div id="lb-tot" style="font-size:14px"></div><div id="lb-ultimas" class="suave">—</div></div>
     ${modo === "novas" ? `<p class="cam-dica">No jogo, abra o baú (CHEST) e ordene pelas <b>novas</b> (elas ficam no começo, com "New!"). Confira o número do CHEST acima (corrija se estiver errado) e desça a lista devagar até eu avisar que achei todas. Depois toque em <b>Revisar</b>.</p>` : ""}
-    <p class="cam-dica" ${modo === "novas" ? 'style="display:none"' : ""}>No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 31)</span></p>
+    <p class="cam-dica" ${modo === "novas" ? 'style="display:none"' : ""}>No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 32)</span></p>
     <div class="cam-acoes"><button id="lb-recomecar">Recomeçar</button><button class="principal" id="lb-revisar" disabled>Revisar e salvar</button></div>`;
   document.body.append(el);
   document.body.classList.add("sem-rolagem");

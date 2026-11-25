@@ -1507,7 +1507,7 @@ async function abrirCamera() {
       <span class="cam-legenda">Aponte o quadro para a barra preta com o nome da carta</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="cam-slots" id="cam-slots"></div>
-    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 28)</span></p>
+    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 29)</span></p>
     <label class="cam-foto secundario" id="cam-foto">📷 Ou tirar uma foto da mão<input type="file" accept="image/*" capture="environment" id="cam-arquivo" hidden></label>
     <div class="cam-acoes"><button id="cam-recomecar">Recomeçar</button><button class="principal" id="cam-usar" disabled>Usar estas cartas</button></div>`;
   document.body.append(el);
@@ -1924,7 +1924,8 @@ function abasTroca(sug, nDeck) {
   const grupo = (f) => { const o = {}; for (const n of new Set([...Object.keys(sug), ...Object.keys(atual)].map(Number))) { const q = f(sug[n] || 0, atual[n] || 0); if (q > 0) o[n] = q; } return o; };
   const g = { deck: { ...sug }, tirar: grupo((s, a) => a - s), colocar: grupo((s, a) => s - a), manter: grupo((s, a) => Math.min(s, a)) };
   const abas = [["deck", "Deck sugerido"], ["tirar", "Tirar"], ["colocar", "Colocar"], ["manter", "Já no deck"]];
-  const v = g[col.sugVista] ? col.sugVista : "deck", o = g[v], ns = Object.keys(o).map(Number).sort(ordem);
+  // mesma organização das abas Baú e Meu deck (as ordens do menu do jogo)
+  const v = g[col.sugVista] ? col.sugVista : "deck", o = g[v], ns = ordenarCol(Object.keys(o).map(Number));
   const expl = {
     deck: "As 40 cartas da sugestão.",
     tirar: "Estão no seu deck agora, mas não entram na sugestão. No jogo, tire estas do deck.",
@@ -1935,6 +1936,8 @@ function abasTroca(sug, nDeck) {
     : v === "tirar" ? `<span class="bloq">tirar ${o[n]}</span>` : v === "colocar" ? `<span class="lib">colocar ${o[n]}</span>` : `manter ${o[n]}`;
   return `<div class="seletor" role="group" aria-label="Ver">${abas.map(([k, t]) => `<button data-col-vista="${k}" aria-pressed="${k === v}">${t} <span class="qtd">${somaQtd(g[k])}</span></button>`).join("")}</div>
     <p class="suave" style="margin:0">${expl}${!nDeck && v !== "deck" ? " (Seu deck no app está vazio: leia o deck pela câmera da tela CHEST para comparar.)" : ""}</p>
+    ${ns.length > 1 ? `<div class="opcoes"><select class="select" id="col-ordem" aria-label="Organizar por">${ORDENS_COL.map(([k, tx]) => `<option value="${k}" ${k === col.ordem ? "selected" : ""}>Organizar: ${tx}</option>`).join("")}</select>
+      <label class="alternar"><input type="checkbox" id="col-inverter" ${col.inverter ? "checked" : ""}> Inverter</label></div>` : ""}
     <div class="linhas">${ns.map((n) => linhaCol(n, o[n], extra(n))).join("") || `<div class="vazio">${v === "tirar" ? "Nada para tirar." : v === "colocar" ? "Nada para colocar: seu deck já é igual à sugestão." : "Nenhuma."}</div>`}</div>`;
 }
 function linhaCol(n, q, extra = "") {
@@ -2426,7 +2429,7 @@ async function abrirLeitorBau(modo = "tudo") {
       <input id="lb-topo" type="number" inputmode="numeric" min="0" max="9999" placeholder="?" style="width:84px;font:inherit;padding:6px 8px;border-radius:8px;border:1px solid var(--borda);background:var(--superficie-2);color:var(--texto)"></label>
       <div id="lb-tot" style="font-size:14px"></div><div id="lb-ultimas" class="suave">—</div></div>
     ${modo === "novas" ? `<p class="cam-dica">No jogo, abra o baú (CHEST) e ordene pelas <b>novas</b> (elas ficam no começo, com "New!"). Confira o número do CHEST acima (corrija se estiver errado) e desça a lista devagar até eu avisar que achei todas. Depois toque em <b>Revisar</b>.</p>` : ""}
-    <p class="cam-dica" ${modo === "novas" ? 'style="display:none"' : ""}>No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 28)</span></p>
+    <p class="cam-dica" ${modo === "novas" ? 'style="display:none"' : ""}>No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 29)</span></p>
     <div class="cam-acoes"><button id="lb-recomecar">Recomeçar</button><button class="principal" id="lb-revisar" disabled>Revisar e salvar</button></div>`;
   document.body.append(el);
   document.body.classList.add("sem-rolagem");

@@ -1479,7 +1479,7 @@ async function abrirCamera() {
       <span class="cam-legenda">Aponte o quadro para a barra preta com o nome da carta</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="cam-slots" id="cam-slots"></div>
-    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 17)</span></p>
+    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 18)</span></p>
     <label class="cam-foto secundario" id="cam-foto">📷 Ou tirar uma foto da mão<input type="file" accept="image/*" capture="environment" id="cam-arquivo" hidden></label>
     <div class="cam-acoes"><button id="cam-recomecar">Recomeçar</button><button class="principal" id="cam-usar" disabled>Usar estas cartas</button></div>`;
   document.body.append(el);
@@ -1598,7 +1598,7 @@ document.addEventListener("change", (e) => {
 // ---------- Minhas cartas: baú, deck atual e sugestões de deck ----------
 const CHAVE_COL = "fmh-colecao-v1", TAM_DECK = 40, MAX_COPIAS = 3;
 let colecao = { bau: {}, deck: {} };   // número -> quantidade (o baú conta TODAS as cópias que você tem, inclusive as do deck)
-let col = { sub: "bau", busca: "", sug: 0, ordem: "forca", inverter: false };
+let col = { sub: "bau", busca: "", sug: 0, sugVista: "deck", ordem: "forca", inverter: false };
 try { Object.assign(col, JSON.parse(localStorage.getItem("fmh-col-ordem") || "{}")); } catch (e) {}
 const salvarOrdemCol = () => { try { localStorage.setItem("fmh-col-ordem", JSON.stringify({ ordem: col.ordem, inverter: col.inverter })); } catch (e) {} };
 // as mesmas ordens do menu do jogo (NO., ABC, MAX, ATK, DEF, TYPE)
@@ -1658,12 +1658,47 @@ function resumoDeck(deck) {   // deck: {n: qtd}
   for (const n of nums) { const c = CARTAS.get(n), q = deck[n];
     if (monstro(c)) { monstros += q; somaAtk += c.atk * q; } else if (c.tipo === "Equipamento") equips += q; else outras += q; }
   const fus = fusoesDoConjunto(nums).filter((f) => f.r.atk >= 1800);   // só as que dão um monstro de 1800+
-  return { total, monstros, equips, outras, media: monstros ? Math.round(somaAtk / monstros) : 0, fus };
+  const cad = cadeiasDoConjunto(deck).filter((f) => f.r.atk >= 1800);
+  return { total, monstros, equips, outras, media: monstros ? Math.round(somaAtk / monstros) : 0, fus, cad };
+}
+// Fusão em cadeia (3 ou 4 cartas): funde duas, e o resultado funde com a próxima, ficando ainda mais forte
+function cadeiasDoConjunto(deck, max = 4) {   // deck: {n: qtd}
+  const cs = Object.keys(deck).map(Number).filter((n) => deck[n] > 0).map((n) => CARTAS.get(n)).filter(monstro);
+  const achadas = new Map();   // carta final -> cadeia mais curta que chega nela
+  let nivel = [];
+  for (let i = 0; i < cs.length; i++) for (let j = i; j < cs.length; j++) {
+    if (i === j && deck[cs[i].n] < 2) continue;
+    const g = ganhoFusao(cs[i], cs[j]); if (g > 0) nivel.push({ cartas: [cs[i], cs[j]], r: combinar(cs[i], cs[j]) });
+  }
+  const jaTem = new Set(nivel.map((x) => x.r.n));   // resultados que já saem com menos cartas
+  for (let tam = 3; tam <= max; tam++) {
+    const prox = [], porResultado = new Map();
+    for (const x of nivel) if (!porResultado.has(x.r.n)) porResultado.set(x.r.n, x);   // um caminho por resultado basta
+    for (const x of porResultado.values()) {
+      const uso = {}; for (const c of x.cartas) uso[c.n] = (uso[c.n] || 0) + 1;
+      for (const c of cs) {
+        if ((uso[c.n] || 0) >= deck[c.n]) continue;
+        const r = combinar(x.r, c); if (!r || !monstro(r) || r.atk <= x.r.atk) continue;
+        const nova = { cartas: [...x.cartas, c], r };
+        prox.push(nova);
+        if (!jaTem.has(r.n) && !achadas.has(r.n)) achadas.set(r.n, nova);
+      }
+    }
+    for (const x of prox) jaTem.add(x.r.n);
+    nivel = prox;
+  }
+  return [...achadas.values()].sort((a, b) => b.r.atk - a.r.atk || a.cartas.length - b.cartas.length);
 }
 
 // --- Sugestões: só com o que está no baú (até 3 cópias de cada) ---
 // Magias e armadilhas ficam de fora: o app ainda não tem dados para medir a força delas.
+let cacheSug = null, LIM_CAD = 10;   // as contas são pesadas: só refaz quando o baú muda
 function sugerirDecks() {
+  const chave = JSON.stringify(colecao.bau);
+  if (cacheSug?.chave !== chave) cacheSug = { chave, sugs: montarSugestoes() };
+  return cacheSug.sugs;
+}
+function montarSugestoes() {
   const disp = new Map();
   for (const [k, q] of Object.entries(colecao.bau)) { const c = CARTAS.get(+k); if (c && q > 0) disp.set(c.n, Math.min(q, MAX_COPIAS)); }
   const cartas = [...disp.keys()].map((n) => CARTAS.get(n));
@@ -1693,6 +1728,18 @@ function sugerirDecks() {
     const d = {}; let tot = 0;
     const pesoCopia = [1, 0.6, 0.35];
     const atks = mons.map((c) => c.atk).sort((a, b) => b - a), FORTE = Math.max(1500, atks[Math.min(atks.length - 1, 15)] || 0);
+    // cadeias de 3: (a + b) + c, quando o resultado fica mais forte ainda
+    const cad3 = new Map();   // n -> [[outra1, outra2, atk final], ...]
+    for (let i = 0; i < mons.length; i++) for (let j = i + 1; j < mons.length; j++) {
+      if (!ganhoFusao(mons[i], mons[j])) continue;
+      const r = combinar(mons[i], mons[j]);
+      for (const m of mons) {
+        if (m === mons[i] || m === mons[j]) continue;
+        const r2 = combinar(r, m); if (!r2 || !monstro(r2) || r2.atk <= r.atk || r2.atk <= FORTE) continue;
+        for (const [x, o1, o2] of [[mons[i], mons[j], m], [mons[j], mons[i], m], [m, mons[i], mons[j]]]) { if (!cad3.has(x.n)) cad3.set(x.n, []); cad3.get(x.n).push([o1.n, o2.n, r2.atk]); }
+      }
+    }
+    for (const [n, l] of cad3) cad3.set(n, l.sort((x, y) => y[2] - x[2]).slice(0, LIM_CAD));   // só as melhores de cada carta (mais rápido)
     while (tot < TAM_DECK) {
       let melhor = null;
       for (const c of [...mons, ...eqs]) {
@@ -1702,6 +1749,7 @@ function sugerirDecks() {
           let f = 0, pot = 0;
           // vale mais a fusão que dá monstro forte (acima de FORTE de ATK)
           for (const [m, g, r] of ganho.get(c.n) || []) { const bom = Math.max(0, r - FORTE) / 600; if (d[m]) f += bom; else pot += bom / 6; }
+          for (const [o1, o2, r] of cad3.get(c.n) || []) { const bom = (r - FORTE) / 600 * 0.6; if (d[o1] && d[o2]) f += bom; else if (d[o1] || d[o2]) pot += bom / 8; }
           v = (c.atk / 1000 + Math.min(f, 4) + Math.min(pot, 1)) * pesoCopia[ja];
         } else {
           const k = Object.keys(d).reduce((s, m) => s + (podeEquipar(c, CARTAS.get(+m)) ? d[m] : 0), 0);
@@ -1718,6 +1766,25 @@ function sugerirDecks() {
 }
 
 // --- Telas ---
+// Abas embaixo da sugestão: o deck inteiro, o que tirar, o que colocar e o que já está certo (para mexer no jogo mais fácil)
+function abasTroca(sug, nDeck) {
+  const atual = colecao.deck, ordem = (a, b) => { const x = CARTAS.get(a), y = CARTAS.get(b); return monstro(y) - monstro(x) || y.atk - x.atk || a - b; };
+  const grupo = (f) => { const o = {}; for (const n of new Set([...Object.keys(sug), ...Object.keys(atual)].map(Number))) { const q = f(sug[n] || 0, atual[n] || 0); if (q > 0) o[n] = q; } return o; };
+  const g = { deck: { ...sug }, tirar: grupo((s, a) => a - s), colocar: grupo((s, a) => s - a), manter: grupo((s, a) => Math.min(s, a)) };
+  const abas = [["deck", "Deck sugerido"], ["tirar", "Tirar"], ["colocar", "Colocar"], ["manter", "Já no deck"]];
+  const v = g[col.sugVista] ? col.sugVista : "deck", o = g[v], ns = Object.keys(o).map(Number).sort(ordem);
+  const expl = {
+    deck: "As 40 cartas da sugestão.",
+    tirar: "Estão no seu deck agora, mas não entram na sugestão. No jogo, tire estas do deck.",
+    colocar: "Entram na sugestão e ainda não estão no seu deck. No jogo, coloque estas (estão no seu baú).",
+    manter: "Já estão no seu deck e continuam. Não precisa mexer.",
+  }[v];
+  const extra = (n) => v === "deck" ? (atual[n] ? `já está no seu deck (${atual[n]}x)` : `<span class="lib">novo no deck</span>`)
+    : v === "tirar" ? `<span class="bloq">tirar ${o[n]}</span>` : v === "colocar" ? `<span class="lib">colocar ${o[n]}</span>` : `manter ${o[n]}`;
+  return `<div class="seletor" role="group" aria-label="Ver">${abas.map(([k, t]) => `<button data-col-vista="${k}" aria-pressed="${k === v}">${t} <span class="qtd">${somaQtd(g[k])}</span></button>`).join("")}</div>
+    <p class="suave" style="margin:0">${expl}${!nDeck && v !== "deck" ? " (Seu deck no app está vazio: leia o deck pela câmera da tela CHEST para comparar.)" : ""}</p>
+    <div class="linhas">${ns.map((n) => linhaCol(n, o[n], extra(n))).join("") || `<div class="vazio">${v === "tirar" ? "Nada para tirar." : v === "colocar" ? "Nada para colocar: seu deck já é igual à sugestão." : "Nenhuma."}</div>`}</div>`;
+}
 function linhaCol(n, q, extra = "") {
   const c = CARTAS.get(n), noDeck = colecao.deck[n] || 0;
   return `<div class="linha com-img col-linha"><span class="th">${mini(n, "m44")}<span class="qtd-selo num">${q}x</span></span>
@@ -1771,10 +1838,13 @@ function desenharColecao() {
           ${r.total < TAM_DECK ? `<p class="bloq">Só deu ${r.total} cartas com o que está no baú (o jogo pede ${TAM_DECK}).</p>` : ""}
           <p class="verificar">Magias e armadilhas (Raigeki, Dark Hole…) não entram na conta: o app ainda não sabe medir a força delas. Se tiver, troque algumas cartas fracas por elas.</p>
           <button class="btn ouro" id="col-usar-sug">Usar como meu deck</button></div>
+        ${r.cad.length ? `<div class="bloco"><span class="rot">Fusões em cadeia (3 ou mais cartas)</span>
+          <p class="suave" style="margin:0 0 4px;font-size:12.5px">Selecione as cartas nesta ordem na mão: as duas primeiras fundem, e o resultado funde com a próxima.</p>
+          ${r.cad.slice(0, 6).map((f) => `<div class="par-col" style="flex-wrap:wrap">${f.cartas.map((c) => mini(c.n, "m30")).join("+")}= ${mini(f.r.n, "m30")}<span><b>${esc(f.r.nome)}</b> <span class="num">${f.r.atk}</span><br><small class="suave">${f.cartas.map((c) => esc(c.nome)).join(" + ")}</small></span></div>`).join("")}</div>` : ""}
         ${r.fus.length ? `<div class="bloco"><span class="rot">Melhores fusões dentro deste deck</span>
           ${[...new Map(r.fus.map((f) => [f.r.n, f])).values()].slice(0, 6).map((f) => { const nPares = r.fus.filter((x) => x.r.n === f.r.n).length;
             return `<div class="par-col">${mini(f.a.n, "m30")}+${mini(f.b.n, "m30")}= ${mini(f.r.n, "m30")}<span><b>${esc(f.r.nome)}</b> <span class="num">${f.r.atk}</span>${nPares > 1 ? `<br><small class="suave">${nPares} jeitos de fazer</small>` : ""}</span></div>`; }).join("")}</div>` : ""}
-        <div class="linhas">${lista.map((n) => linhaCol(n, s.deck[n], colecao.deck[n] ? `já está no seu deck (${colecao.deck[n]}x)` : `<span class="lib">novo no deck</span>`)).join("")}</div>`;
+        ${abasTroca(s.deck, nDeck)}`;
     }
   }
   v.innerHTML = `
@@ -2101,7 +2171,7 @@ async function abrirLeitorBau() {
       <span class="cam-legenda">Mostre a TV inteira, com a lista do baú</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="bloco"><span class="rot">Lidas: <b id="lb-n">0</b> cartas diferentes</span><div id="lb-tot" style="font-size:14px"></div><div id="lb-ultimas" class="suave">—</div></div>
-    <p class="cam-dica">No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 17)</span></p>
+    <p class="cam-dica">No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 18)</span></p>
     <div class="cam-acoes"><button id="lb-recomecar">Recomeçar</button><button class="principal" id="lb-revisar" disabled>Revisar e salvar</button></div>`;
   document.body.append(el);
   document.body.classList.add("sem-rolagem");
@@ -2270,6 +2340,7 @@ document.addEventListener("click", (e) => {
   if (!t.closest("#v-colecao")) return;
   if (t.dataset.colSub) { col.sub = t.dataset.colSub; desenharColecao(); }
   else if (t.dataset.colSug) { col.sug = +t.dataset.colSug; desenharColecao(); }
+  else if (t.dataset.colVista) { col.sugVista = t.dataset.colVista; desenharColecao(); }
   else if (t.dataset.colQ) { const [onde, n, d] = t.dataset.colQ.split(":"); mudarQtd(onde, +n, +d); desenharColecao(); }
   else if (t.dataset.colAdd) { mudarQtd(col.sub === "deck" ? "deck" : "fora", +t.dataset.colAdd, 1); col.busca = ""; desenharColecao(); avisar(`${CARTAS.get(+t.dataset.colAdd).nome} adicionada.`); }
   else if (t.id === "col-camera") abrirLeitorBau();

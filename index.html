@@ -1479,7 +1479,7 @@ async function abrirCamera() {
       <span class="cam-legenda">Aponte o quadro para a barra preta com o nome da carta</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="cam-slots" id="cam-slots"></div>
-    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 18)</span></p>
+    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 19)</span></p>
     <label class="cam-foto secundario" id="cam-foto">📷 Ou tirar uma foto da mão<input type="file" accept="image/*" capture="environment" id="cam-arquivo" hidden></label>
     <div class="cam-acoes"><button id="cam-recomecar">Recomeçar</button><button class="principal" id="cam-usar" disabled>Usar estas cartas</button></div>`;
   document.body.append(el);
@@ -1661,6 +1661,12 @@ function resumoDeck(deck) {   // deck: {n: qtd}
   const cad = cadeiasDoConjunto(deck).filter((f) => f.r.atk >= 1800);
   return { total, monstros, equips, outras, media: monstros ? Math.round(somaAtk / monstros) : 0, fus, cad };
 }
+// Lista única de fusões: as de 2 cartas e, das de 3 ou mais, só as que ficam mais fortes que a melhor de 2
+function melhoresFusoes(r) {
+  const dois = [...new Map(r.fus.map((f) => [f.r.n, f])).values()].map((f) => ({ cartas: [f.a, f.b], r: f.r, jeitos: r.fus.filter((x) => x.r.n === f.r.n).length }));
+  const topo2 = dois.length ? dois[0].r.atk : 0;
+  return [...r.cad.filter((f) => f.r.atk > topo2), ...dois].sort((a, b) => b.r.atk - a.r.atk || a.cartas.length - b.cartas.length).slice(0, 7);
+}
 // Fusão em cadeia (3 ou 4 cartas): funde duas, e o resultado funde com a próxima, ficando ainda mais forte
 function cadeiasDoConjunto(deck, max = 4) {   // deck: {n: qtd}
   const cs = Object.keys(deck).map(Number).filter((n) => deck[n] > 0).map((n) => CARTAS.get(n)).filter(monstro);
@@ -1838,12 +1844,9 @@ function desenharColecao() {
           ${r.total < TAM_DECK ? `<p class="bloq">Só deu ${r.total} cartas com o que está no baú (o jogo pede ${TAM_DECK}).</p>` : ""}
           <p class="verificar">Magias e armadilhas (Raigeki, Dark Hole…) não entram na conta: o app ainda não sabe medir a força delas. Se tiver, troque algumas cartas fracas por elas.</p>
           <button class="btn ouro" id="col-usar-sug">Usar como meu deck</button></div>
-        ${r.cad.length ? `<div class="bloco"><span class="rot">Fusões em cadeia (3 ou mais cartas)</span>
-          <p class="suave" style="margin:0 0 4px;font-size:12.5px">Selecione as cartas nesta ordem na mão: as duas primeiras fundem, e o resultado funde com a próxima.</p>
-          ${r.cad.slice(0, 6).map((f) => `<div class="par-col" style="flex-wrap:wrap">${f.cartas.map((c) => mini(c.n, "m30")).join("+")}= ${mini(f.r.n, "m30")}<span><b>${esc(f.r.nome)}</b> <span class="num">${f.r.atk}</span><br><small class="suave">${f.cartas.map((c) => esc(c.nome)).join(" + ")}</small></span></div>`).join("")}</div>` : ""}
-        ${r.fus.length ? `<div class="bloco"><span class="rot">Melhores fusões dentro deste deck</span>
-          ${[...new Map(r.fus.map((f) => [f.r.n, f])).values()].slice(0, 6).map((f) => { const nPares = r.fus.filter((x) => x.r.n === f.r.n).length;
-            return `<div class="par-col">${mini(f.a.n, "m30")}+${mini(f.b.n, "m30")}= ${mini(f.r.n, "m30")}<span><b>${esc(f.r.nome)}</b> <span class="num">${f.r.atk}</span>${nPares > 1 ? `<br><small class="suave">${nPares} jeitos de fazer</small>` : ""}</span></div>`; }).join("")}</div>` : ""}
+        ${melhoresFusoes(r).length ? `<div class="bloco"><span class="rot">Melhores fusões dentro deste deck</span>
+          ${melhoresFusoes(r).map((f) => `<div class="par-col" style="flex-wrap:wrap">${f.cartas.map((c) => mini(c.n, "m30")).join("+")}= ${mini(f.r.n, "m30")}<span><b>${esc(f.r.nome)}</b> <span class="num">${f.r.atk}</span>${f.cartas.length > 2
+            ? `<br><small class="suave">${f.cartas.length} cartas, nesta ordem: ${f.cartas.map((c) => esc(c.nome)).join(" + ")}</small>` : f.jeitos > 1 ? `<br><small class="suave">${f.jeitos} jeitos de fazer</small>` : ""}</span></div>`).join("")}</div>` : ""}
         ${abasTroca(s.deck, nDeck)}`;
     }
   }
@@ -2171,7 +2174,7 @@ async function abrirLeitorBau() {
       <span class="cam-legenda">Mostre a TV inteira, com a lista do baú</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="bloco"><span class="rot">Lidas: <b id="lb-n">0</b> cartas diferentes</span><div id="lb-tot" style="font-size:14px"></div><div id="lb-ultimas" class="suave">—</div></div>
-    <p class="cam-dica">No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 18)</span></p>
+    <p class="cam-dica">No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 19)</span></p>
     <div class="cam-acoes"><button id="lb-recomecar">Recomeçar</button><button class="principal" id="lb-revisar" disabled>Revisar e salvar</button></div>`;
   document.body.append(el);
   document.body.classList.add("sem-rolagem");

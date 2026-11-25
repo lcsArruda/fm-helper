@@ -1479,7 +1479,7 @@ async function abrirCamera() {
       <span class="cam-legenda">Aponte o quadro para a barra preta com o nome da carta</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="cam-slots" id="cam-slots"></div>
-    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 19)</span></p>
+    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 20)</span></p>
     <label class="cam-foto secundario" id="cam-foto">📷 Ou tirar uma foto da mão<input type="file" accept="image/*" capture="environment" id="cam-arquivo" hidden></label>
     <div class="cam-acoes"><button id="cam-recomecar">Recomeçar</button><button class="principal" id="cam-usar" disabled>Usar estas cartas</button></div>`;
   document.body.append(el);
@@ -1704,22 +1704,47 @@ function sugerirDecks() {
   if (cacheSug?.chave !== chave) cacheSug = { chave, sugs: montarSugestoes() };
   return cacheSug.sugs;
 }
+// Magias e armadilhas que os jogadores (guias e fóruns) consideram essenciais: entram sempre que você tem.
+// Raigeki é a mais importante do jogo (destrói todos os monstros do adversário).
+const ESSENCIAIS = [["Raigeki", 3], ["Swords of Revealing Light", 1], ["Widespread Ruin", 2], ["Dark Hole", 1]];
+function essenciais(disp) {
+  const o = {};
+  for (const [nome, max] of ESSENCIAIS) { const c = LISTA.find((x) => x.nome === nome); if (c && disp.get(c.n)) o[c.n] = Math.min(max, disp.get(c.n)); }
+  return o;
+}
+// Campos: deixam mais fortes (+500) alguns tipos de monstro. Entra 1, se vários monstros do deck ganharem com ele.
+const CAMPOS = { Forest: ["Inseto", "Fera", "Planta", "Fera-Guerreira"], Wasteland: ["Zumbi", "Dinossauro", "Rocha"],
+  Mountain: ["Dragão", "Besta Alada", "Trovão"], Sogen: ["Fera-Guerreira", "Guerreiro"], Umi: ["Aqua", "Trovão", "Serpente Marinha", "Peixe"], Yami: ["Demônio", "Mago"] };
+function comCampo(deck, disp) {
+  let melhor = null;
+  for (const [nome, tipos] of Object.entries(CAMPOS)) {
+    const c = LISTA.find((x) => x.nome === nome); if (!c || !disp.get(c.n)) continue;
+    const k = Object.entries(deck).reduce((s, [n, q]) => s + (monstro(CARTAS.get(+n)) && tipos.includes(CARTAS.get(+n).tipo) ? q : 0), 0);
+    if (k >= 8 && (!melhor || k > melhor.k)) melhor = { c, k };
+  }
+  if (!melhor) return deck;
+  // sai o monstro mais fraco que não ganha com o campo
+  const fraco = Object.keys(deck).map(Number).map((n) => CARTAS.get(n)).filter((c) => monstro(c) && !CAMPOS[melhor.c.nome].includes(c.tipo)).sort((a, b) => a.atk - b.atk)[0];
+  if (!fraco) return deck;
+  const d = { ...deck }; if (--d[fraco.n] <= 0) delete d[fraco.n]; d[melhor.c.n] = 1; return d;
+}
 function montarSugestoes() {
   const disp = new Map();
   for (const [k, q] of Object.entries(colecao.bau)) { const c = CARTAS.get(+k); if (c && q > 0) disp.set(c.n, Math.min(q, MAX_COPIAS)); }
   const cartas = [...disp.keys()].map((n) => CARTAS.get(n));
   const mons = cartas.filter(monstro), eqs = cartas.filter((c) => c.tipo === "Equipamento");
   const sugestoes = [];
+  const ess = essenciais(disp), LIM = TAM_DECK - somaQtd(ess);   // Raigeki e companhia entram primeiro
 
   // 1) Mais fortes: os monstros de ATK mais alto + equipamentos que servem em vários deles
   {
     const d = {}; let tot = 0;
-    for (const c of [...mons].sort((a, b) => b.atk - a.atk)) { if (tot >= 34) break; const q = Math.min(disp.get(c.n), 34 - tot); d[c.n] = q; tot += q; }
+    for (const c of [...mons].sort((a, b) => b.atk - a.atk)) { if (tot >= LIM - 6) break; const q = Math.min(disp.get(c.n), LIM - 6 - tot); d[c.n] = q; tot += q; }
     const doDeck = Object.keys(d).map((n) => CARTAS.get(+n));
     const uteis = eqs.map((e) => ({ e, k: doDeck.filter((m) => podeEquipar(e, m)).reduce((s, m) => s + d[m.n], 0) }))
       .filter((x) => x.k >= 4).sort((a, b) => b.k - a.k);
-    for (const { e } of uteis) { if (tot >= TAM_DECK) break; const q = Math.min(disp.get(e.n), TAM_DECK - tot); d[e.n] = q; tot += q; }
-    for (const c of [...mons].sort((a, b) => b.atk - a.atk)) { if (tot >= TAM_DECK) break; const q = Math.min(disp.get(c.n) - (d[c.n] || 0), TAM_DECK - tot); if (q > 0) { d[c.n] = (d[c.n] || 0) + q; tot += q; } }
+    for (const { e } of uteis) { if (tot >= LIM) break; const q = Math.min(disp.get(e.n), LIM - tot); d[e.n] = q; tot += q; }
+    for (const c of [...mons].sort((a, b) => b.atk - a.atk)) { if (tot >= LIM) break; const q = Math.min(disp.get(c.n) - (d[c.n] || 0), LIM - tot); if (q > 0) { d[c.n] = (d[c.n] || 0) + q; tot += q; } }
     sugestoes.push({ nome: "Mais fortes", desc: "Os monstros de ATK mais alto que você tem, mais equipamentos que servem em vários deles.", deck: d });
   }
 
@@ -1746,7 +1771,7 @@ function montarSugestoes() {
       }
     }
     for (const [n, l] of cad3) cad3.set(n, l.sort((x, y) => y[2] - x[2]).slice(0, LIM_CAD));   // só as melhores de cada carta (mais rápido)
-    while (tot < TAM_DECK) {
+    while (tot < LIM) {
       let melhor = null;
       for (const c of [...mons, ...eqs]) {
         const ja = d[c.n] || 0; if (ja >= disp.get(c.n)) continue;
@@ -1768,7 +1793,7 @@ function montarSugestoes() {
     }
     sugestoes.push({ nome: "Fusões", desc: "Cartas que fundem bem entre si: mais chances de fazer um monstro forte com a mão que vier.", deck: d });
   }
-  return sugestoes.map((s) => ({ ...s, resumo: resumoDeck(s.deck) }));
+  return sugestoes.map((s) => { const deck = comCampo({ ...s.deck, ...ess }, disp); return { ...s, deck, resumo: resumoDeck(deck) }; });
 }
 
 // --- Telas ---
@@ -1842,7 +1867,7 @@ function desenharColecao() {
         <div class="bloco"><span class="rot">Sugestão: ${esc(s.nome)}</span><p>${esc(s.desc)}</p>
           <p class="suave">${r.total} cartas · ${r.monstros} monstros (ATK médio ${r.media}${cmp(r.media, atual?.media)}) · ${r.equips} equipamentos · ${r.fus.length} fusões que dão 1800+ de ATK${cmp(r.fus.length, atual?.fus.length)}${atual ? " — entre parênteses, a diferença para o seu deck atual" : ""}</p>
           ${r.total < TAM_DECK ? `<p class="bloq">Só deu ${r.total} cartas com o que está no baú (o jogo pede ${TAM_DECK}).</p>` : ""}
-          <p class="verificar">Magias e armadilhas (Raigeki, Dark Hole…) não entram na conta: o app ainda não sabe medir a força delas. Se tiver, troque algumas cartas fracas por elas.</p>
+          <p class="verificar">Raigeki entra sempre que você tem (é a carta mais importante do jogo). Também entram, se você tiver: Swords of Revealing Light, Widespread Ruin, Dark Hole e um campo (Forest, Mountain…) quando vários monstros do deck ganham com ele.</p>
           <button class="btn ouro" id="col-usar-sug">Usar como meu deck</button></div>
         ${melhoresFusoes(r).length ? `<div class="bloco"><span class="rot">Melhores fusões dentro deste deck</span>
           ${melhoresFusoes(r).map((f) => `<div class="par-col" style="flex-wrap:wrap">${f.cartas.map((c) => mini(c.n, "m30")).join("+")}= ${mini(f.r.n, "m30")}<span><b>${esc(f.r.nome)}</b> <span class="num">${f.r.atk}</span>${f.cartas.length > 2
@@ -2174,7 +2199,7 @@ async function abrirLeitorBau() {
       <span class="cam-legenda">Mostre a TV inteira, com a lista do baú</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="bloco"><span class="rot">Lidas: <b id="lb-n">0</b> cartas diferentes</span><div id="lb-tot" style="font-size:14px"></div><div id="lb-ultimas" class="suave">—</div></div>
-    <p class="cam-dica">No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 19)</span></p>
+    <p class="cam-dica">No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 20)</span></p>
     <div class="cam-acoes"><button id="lb-recomecar">Recomeçar</button><button class="principal" id="lb-revisar" disabled>Revisar e salvar</button></div>`;
   document.body.append(el);
   document.body.classList.add("sem-rolagem");

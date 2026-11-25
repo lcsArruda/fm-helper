@@ -1507,7 +1507,7 @@ async function abrirCamera() {
       <span class="cam-legenda">Aponte o quadro para a barra preta com o nome da carta</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="cam-slots" id="cam-slots"></div>
-    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 27)</span></p>
+    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 28)</span></p>
     <label class="cam-foto secundario" id="cam-foto">📷 Ou tirar uma foto da mão<input type="file" accept="image/*" capture="environment" id="cam-arquivo" hidden></label>
     <div class="cam-acoes"><button id="cam-recomecar">Recomeçar</button><button class="principal" id="cam-usar" disabled>Usar estas cartas</button></div>`;
   document.body.append(el);
@@ -1733,6 +1733,12 @@ function cadeiasDoConjunto(deck, max = 4) {   // deck: {n: qtd}
 // --- Sugestões: só com o que está no baú (até 3 cópias de cada) ---
 // Magias e armadilhas ficam de fora: o app ainda não tem dados para medir a força delas.
 let cacheSug = null, LIM_CAD = 10;   // as contas são pesadas: só refaz quando o baú muda
+let cacheForca = null;
+function forcaAtual() {
+  const chave = JSON.stringify(colecao.deck);
+  if (cacheForca?.chave !== chave) cacheForca = { chave, v: forcaDeck(colecao.deck) };
+  return cacheForca.v;
+}
 function sugerirDecks() {
   const chave = JSON.stringify(colecao.bau);
   if (cacheSug?.chave !== chave) cacheSug = { chave, sugs: montarSugestoes() };
@@ -1761,6 +1767,73 @@ function comCampo(deck, disp) {
   const fraco = Object.keys(deck).map(Number).map((n) => CARTAS.get(n)).filter((c) => monstro(c) && !CAMPOS[melhor.c.nome].includes(c.tipo)).sort((a, b) => a.atk - b.atk)[0];
   if (!fraco) return deck;
   const d = { ...deck }; if (--d[fraco.n] <= 0) delete d[fraco.n]; d[melhor.c.n] = 1; return d;
+}
+// --- Teste do deck em mãos sorteadas ---
+// Força de uma mão de 5 = o monstro mais forte que dá para pôr em campo nela: a carta sozinha, ou uma fusão
+// (de 2, 3, 4 ou 5 cartas, em qualquer ordem), mais os equipamentos da mão que servem nele.
+// (tabelas prontas em vez de buscar no Map a cada fusão: a conta roda milhares de vezes)
+let TF = null;
+function tabelasForca() {
+  if (TF) return TF;
+  const RES = new Int16Array(1024 * 1024), ATK = new Int16Array(1024), EB = new Int16Array(1024), MON = new Uint8Array(1024), EQOK = [];
+  for (const c of CARTAS.values()) { if (monstro(c)) { MON[c.n] = 1; ATK[c.n] = c.atk; } if (c.tipo === "Equipamento") EB[c.n] = bonus(c); }
+  for (const [k, r] of FUSOES) { const a = Math.floor(k / 1000), b = k % 1000; if (MON[r]) { RES[a * 1024 + b] = r; RES[b * 1024 + a] = r; } }
+  for (const [e, s] of EQUIP) { const u = new Uint8Array(1024); for (const m of s) u[m] = 1; EQOK[e] = u; }
+  return (TF = { RES, ATK, EB, MON, EQOK });
+}
+function forcaMao(ns) {   // ns: números das 5 cartas
+  const { RES, ATK, EB, MON, EQOK } = tabelasForca(), ms = [], es = [];
+  for (const n of ns) { if (MON[n]) ms.push(n); else if (EB[n] && EQOK[n]) es.push(n); }
+  let best = 0;
+  const ver = (c) => { let a = ATK[c]; for (const e of es) if (EQOK[e][c]) a += EB[e]; if (a > best) best = a; };
+  const L = ms.length;
+  const seguir = (at, us) => { for (let k = 0; k < L; k++) if (!(us & (1 << k))) { const r = RES[at * 1024 + ms[k]]; if (!r) continue; ver(r); seguir(r, us | (1 << k)); } };
+  for (let i = 0; i < L; i++) { ver(ms[i]); seguir(ms[i], 1 << i); }
+  return best;
+}
+// sorteio sempre igual (mesma semente): a mesma coleção dá sempre a mesma sugestão
+function sorteador(seed) { let s = seed; return () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff; }
+function maosSorteadas(nSlots, N, seed) {
+  const rnd = sorteador(seed), maos = [];
+  for (let h = 0; h < N; h++) { const set = new Set(); while (set.size < 5) set.add(Math.floor(rnd() * nSlots)); maos.push([...set]); }
+  return maos;
+}
+const slotsDe = (deck) => { const s = []; for (const [n, q] of Object.entries(deck)) for (let i = 0; i < q; i++) s.push(+n); return s; };
+// força média da mão inicial (ATK do melhor monstro que dá para jogar), em 2000 mãos sorteadas
+function forcaDeck(deck) {
+  const slots = slotsDe(deck); if (slots.length < 5) return 0;
+  let t = 0; const maos = maosSorteadas(slots.length, 2000, 7);
+  for (const m of maos) t += forcaMao(m.map((i) => slots[i]));
+  return Math.round(t / maos.length);
+}
+// Melhora o deck trocando uma carta por vez: fica a troca que deixa as mãos sorteadas mais fortes, até não melhorar mais.
+// "fixos" (Raigeki, campo…) não saem.
+function otimizarDeck(base, disp, fixos) {
+  const slots = slotsDe(base), maos = maosSorteadas(slots.length, 360, 1), porSlot = slots.map(() => []);
+  const fixo = slots.map(() => false); { const f = { ...fixos }; slots.forEach((n, i) => { if (f[n] > 0) { fixo[i] = true; f[n]--; } }); }
+  maos.forEach((a, h) => a.forEach((i) => porSlot[i].push(h)));
+  const forca = (h) => forcaMao(maos[h].map((j) => slots[j]));
+  const val = maos.map((_, h) => forca(h)), cont = {};
+  slots.forEach((n) => cont[n] = (cont[n] || 0) + 1);
+  const pool = [...disp.keys()].map((n) => CARTAS.get(n)).filter((c) => monstro(c) || c.tipo === "Equipamento");
+  for (let passo = 0, melhorou = true; melhorou && passo < 4; passo++) {
+    melhorou = false;
+    for (let i = 0; i < slots.length; i++) {
+      if (fixo[i]) continue;
+      const hs = porSlot[i], velho = slots[i];
+      let melhor = null, melhorT = hs.reduce((t, h) => t + val[h], 0) + 1e-9;
+      for (const c of pool) {
+        if (c.n === velho || (cont[c.n] || 0) >= disp.get(c.n)) continue;
+        slots[i] = c.n;
+        const vs = hs.map(forca), t = vs.reduce((a, b) => a + b, 0);
+        if (t > melhorT) { melhorT = t; melhor = { n: c.n, vs }; }
+      }
+      slots[i] = velho;
+      if (melhor) { slots[i] = melhor.n; cont[velho]--; cont[melhor.n] = (cont[melhor.n] || 0) + 1; hs.forEach((h, k) => val[h] = melhor.vs[k]); melhorou = true; }
+    }
+  }
+  const d = {}; slots.forEach((n) => d[n] = (d[n] || 0) + 1);
+  return d;
 }
 function montarSugestoes() {
   const disp = new Map();
@@ -1827,7 +1900,21 @@ function montarSugestoes() {
     }
     sugestoes.push({ nome: "Fusões", desc: "Cartas que fundem bem entre si: mais chances de fazer um monstro forte com a mão que vier.", deck: d });
   }
-  return sugestoes.map((s) => { const deck = comCampo({ ...s.deck, ...ess }, disp); return { ...s, deck, resumo: resumoDeck(deck) }; });
+  // As duas montagens acima são só o ponto de partida: o deck final sai do teste em mãos sorteadas
+  // (antes, a conta por pontos tirava dragões e trovões, que fundem muito bem entre si).
+  const prontos = sugestoes.map((s) => comCampo({ ...s.deck, ...ess }, disp));
+  if (somaQtd(prontos[1]) < TAM_DECK) return [{ ...sugestoes[1], deck: prontos[1], resumo: resumoDeck(prontos[1]), forca: forcaDeck(prontos[1]) }];
+  // parte das duas montagens e fica com a que chegar mais longe
+  let deck = null, melhorF = -1;
+  for (const p of prontos) {
+    if (somaQtd(p) < TAM_DECK) continue;
+    // magias (Raigeki, campo…) ficam: o teste só mede monstros e equipamentos
+    const fixos = {}; for (const [n, q] of Object.entries(p)) { const c = CARTAS.get(+n); if (!monstro(c) && c.tipo !== "Equipamento") fixos[n] = q; }
+    const o = otimizarDeck(p, disp, fixos), f = forcaDeck(o);
+    if (f > melhorF) { melhorF = f; deck = o; }
+  }
+  return [{ nome: "Melhor deck", desc: "Testei o deck em centenas de mãos sorteadas e fui trocando carta por carta até a mão ficar o mais forte possível (contando fusões de 2 a 5 cartas e equipamentos).",
+    deck, resumo: resumoDeck(deck), forca: melhorF }];
 }
 
 // --- Telas ---
@@ -1898,9 +1985,10 @@ function desenharColecao() {
       const lista = Object.keys(s.deck).map(Number).sort((a, b) => { const x = CARTAS.get(a), y = CARTAS.get(b); return monstro(y) - monstro(x) || y.atk - x.atk; });
       const cmp = (a, b) => b == null ? "" : a > b ? ` <span class="lib">(+${a - b})</span>` : a < b ? ` <span class="bloq">(${a - b})</span>` : "";
       corpo = `
-        <div class="seletor" role="group" aria-label="Sugestão">${sugs.map((x, j) => `<button data-col-sug="${j}" aria-pressed="${j === k}">${esc(x.nome)}</button>`).join("")}</div>
+        ${sugs.length > 1 ? `<div class="seletor" role="group" aria-label="Sugestão">${sugs.map((x, j) => `<button data-col-sug="${j}" aria-pressed="${j === k}">${esc(x.nome)}</button>`).join("")}</div>` : ""}
         <div class="bloco"><span class="rot">Sugestão: ${esc(s.nome)}</span><p>${esc(s.desc)}</p>
-          <p class="suave">${r.total} cartas · ${r.monstros} monstros (ATK médio ${r.media}${cmp(r.media, atual?.media)}) · ${r.equips} equipamentos · ${r.fus.length} fusões que dão 1800+ de ATK${cmp(r.fus.length, atual?.fus.length)}${atual ? " — entre parênteses, a diferença para o seu deck atual" : ""}</p>
+          ${s.forca ? `<p><b>Força da mão: ${s.forca}</b>${atual && nDeck >= TAM_DECK ? cmp(s.forca, forcaAtual()) + ` (seu deck atual: ${forcaAtual()})` : ""}<br><span class="suave">= ATK médio do monstro mais forte que dá para jogar na mão inicial (com fusões e equipamentos), em 2000 mãos sorteadas.</span></p>` : ""}
+          <p class="suave">${r.total} cartas · ${r.monstros} monstros (ATK médio de cada carta sozinha: ${r.media} — cartas fracas que fundem bem valem mais do que parecem) · ${r.equips} equipamentos</p>
           ${r.total < TAM_DECK ? `<p class="bloq">Só deu ${r.total} cartas com o que está no baú (o jogo pede ${TAM_DECK}).</p>` : ""}
           <p class="verificar">Raigeki entra sempre que você tem (é a carta mais importante do jogo). Também entram, se você tiver: Swords of Revealing Light, Widespread Ruin, Dark Hole e um campo (Forest, Mountain…) quando vários monstros do deck ganham com ele.</p>
           <button class="btn ouro" id="col-usar-sug">Usar como meu deck</button></div>
@@ -2338,7 +2426,7 @@ async function abrirLeitorBau(modo = "tudo") {
       <input id="lb-topo" type="number" inputmode="numeric" min="0" max="9999" placeholder="?" style="width:84px;font:inherit;padding:6px 8px;border-radius:8px;border:1px solid var(--borda);background:var(--superficie-2);color:var(--texto)"></label>
       <div id="lb-tot" style="font-size:14px"></div><div id="lb-ultimas" class="suave">—</div></div>
     ${modo === "novas" ? `<p class="cam-dica">No jogo, abra o baú (CHEST) e ordene pelas <b>novas</b> (elas ficam no começo, com "New!"). Confira o número do CHEST acima (corrija se estiver errado) e desça a lista devagar até eu avisar que achei todas. Depois toque em <b>Revisar</b>.</p>` : ""}
-    <p class="cam-dica" ${modo === "novas" ? 'style="display:none"' : ""}>No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 27)</span></p>
+    <p class="cam-dica" ${modo === "novas" ? 'style="display:none"' : ""}>No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 28)</span></p>
     <div class="cam-acoes"><button id="lb-recomecar">Recomeçar</button><button class="principal" id="lb-revisar" disabled>Revisar e salvar</button></div>`;
   document.body.append(el);
   document.body.classList.add("sem-rolagem");
@@ -2550,7 +2638,7 @@ document.addEventListener("click", (e) => {
   else if (t.id === "col-camera") abrirLeitorBau("tudo");
   else if (t.id === "col-novas") abrirLeitorBau("novas");
   else if (t.id === "col-usar-sug") {
-    const s = sugerirDecks()[Math.min(col.sug, 1)];
+    const sg = sugerirDecks(), s = sg[Math.min(col.sug, sg.length - 1)];
     abrirFolha(`<h3>Usar a sugestão “${esc(s.nome)}” como seu deck?</h3><div class="sub">Seu deck salvo no app (${somaQtd(colecao.deck)} cartas) será trocado. No jogo, você monta o deck do mesmo jeito na tela de deck.</div>
       <button class="principal" data-acao="sim">Usar este deck</button><button data-acao="nao">Cancelar</button>`,
       { sim() { colecao.deck = { ...s.deck }; salvarCol(); col.sub = "deck"; desenharColecao(); avisar("Deck atualizado."); }, nao() {} });

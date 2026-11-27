@@ -1506,6 +1506,55 @@ function slotDoCursor(fonte, m) {
   return ord[0] >= 3 && ord[0] >= ord[1] * 2 ? conta.indexOf(ord[0]) : -1;
 }
 
+// Ao vivo: em qual espaço (0 a 4) está o cursor do jogo. A mira fica na barra do nome; as cartas ficam logo acima dela,
+// e a setinha vermelha fica embaixo, à esquerda da carta escolhida. Acha as 5 cartas (colunas laranja/claras) e a setinha.
+// -1 = não deu para ver (aí a leitura funciona do jeito antigo, pela ordem).
+let CUR2_CV = null;
+// Acha na imagem a barra do nome (faixa escura com laranja logo acima) e as 5 cartas acima dela.
+// hbMax: altura máxima da barra (às vezes a barra emenda com a parte escura de baixo da TV)
+function acharPaineis(g, W, H, hbMax = Infinity) {
+  const d = g.getImageData(0, 0, W, H).data, px = (x, y) => (y * W + x) * 4;
+  const x0 = Math.round(W * 0.03), x1 = Math.round(W * 0.97), larg = x1 - x0;
+  const frac = (y, f) => { let n = 0; for (let x = x0; x < x1; x += 2) { const k = px(x, y); if (f(d[k], d[k + 1], d[k + 2])) n++; } return n / (larg / 2); };
+  const escuro = (r, gg, b) => Math.max(r, gg, b) < 60, laranja = (r, gg, b) => r > 150 && r - b > 60 && gg > 90;
+  let barra = null;
+  for (let y = Math.round(H * 0.2); y < H - 5; y++) {
+    if (frac(y, escuro) < 0.45) continue;
+    let e = y; while (e < H && frac(e, escuro) >= 0.35) e++;
+    const hb = Math.min(e - y, hbMax); if (hb < 8) { y = e; continue; }
+    let lar = 0; for (let yy = Math.max(0, Math.round(y - hb * 1.1)); yy < y; yy++) lar = Math.max(lar, frac(yy, laranja));
+    if (lar > 0.12) { barra = { y0: y, y1: y + hb, hb }; break; }
+    y = e;
+  }
+  if (!barra) return null;
+  let p1 = barra.y0 - 1; while (p1 > barra.y0 - barra.hb * 0.4 && frac(p1, laranja) < 0.08) p1--;
+  const p0 = Math.round(p1 - barra.hb * 0.8); if (p1 - p0 < 6 || p0 < 0) return null;
+  const col = []; for (let x = 0; x < W; x++) { let n = 0; for (let y = p0; y <= p1; y++) { const k = px(x, y), r = d[k], gg = d[k + 1], b = d[k + 2]; if (laranja(r, gg, b) || (b > r + 25 && b > 100) || Math.min(r, gg, b) > 190) n++; } col.push(n); }
+  const runs = []; let ini = -1;
+  for (let x = 0; x <= W; x++) { const on = x < W && col[x] >= 2; if (on && ini < 0) ini = x; if (!on && ini >= 0) { runs.push([ini, x - 1]); ini = -1; } }
+  const rr = []; for (const r of runs) { const u = rr[rr.length - 1]; if (u && r[0] - u[1] <= 5) u[1] = r[1]; else rr.push(r.slice()); }
+  return { barra, p0, p1, cartas: rr.filter((r) => r[1] - r[0] > (p1 - p0) * 1.2) };
+}
+function cursorAoVivo(fonte, m) {
+  CUR2_CV ||= document.createElement("canvas");
+  // recorte em volta da mira (a mira fica na barra do nome; as cartas ficam logo acima), em ~600 px de largura
+  const sx = m.x - 0.1 * m.w, sw = 1.2 * m.w, sy = m.y - 1.4 * m.h, sh = 2.4 * m.h, W = 600, H = Math.round(W * sh / sw);
+  CUR2_CV.width = W; CUR2_CV.height = H;
+  const g = CUR2_CV.getContext("2d", { willReadFrequently: true });
+  g.clearRect(0, 0, W, H); g.drawImage(fonte, sx, sy, sw, sh, 0, 0, W, H);
+  // a barra do nome tem ~45% da altura da mira
+  const P = acharPaineis(g, W, H, 0.5 * m.h * W / sw);
+  if (!P || P.cartas.length !== 5) return -1;
+  // setinha vermelha: no vão à esquerda da carta escolhida, na altura do ATK/DEF
+  const conta = P.cartas.map(([a, b]) => {
+    const w = b - a, xa = Math.max(0, Math.round(a - 0.3 * w)), xb = Math.round(a + 0.25 * w), ya = Math.round(P.p0), yb = P.barra.y0;
+    const d = g.getImageData(xa, ya, Math.max(1, xb - xa), Math.max(1, yb - ya)).data; let n = 0;
+    for (let k = 0; k < d.length; k += 4) if (d[k] > 170 && d[k + 1] < 90 && d[k + 2] < 90) n++;
+    return n;
+  });
+  const ord = [...conta].sort((p, q) => q - p);
+  return ord[0] >= 6 && ord[0] > 3 * ord[1] ? conta.indexOf(ord[0]) : -1;
+}
 async function ciclo() {
   if (!CAM.aberta || CAM.foto) return;
   const m = areaDaMira();
@@ -1519,6 +1568,8 @@ async function ciclo() {
 // Ao vivo: lê o nome na barra preta. Cada carta nova (lida 2 vezes seguidas) vai para o próximo espaço.
 async function lerNomeAoVivo(m) {
   const canvas = prepararRecorte(m.fonte, m.x, m.y, m.w, m.h);
+  let cur = -1; try { cur = cursorAoVivo(m.fonte, m); } catch (e) {}   // espaço do cursor, no mesmo instante do recorte
+  if (cur >= 0) CAM.viuCursor = true;
   const texto = await lerTexto(canvas, "6"), linhas = texto.split(/\n+/), deck = cartasDoDeck();
   const procurar = (lista) => { let m = null; for (const l of linhas) { const a = acharCarta(l, lista); if (a && (!m || a.d < m.d)) m = a; } return m; };
   // primeiro entre as cartas do deck: nome bem lido de uma carta do deck já vale na 1ª leitura
@@ -1526,10 +1577,24 @@ async function lerNomeAoVivo(m) {
   const rapido = !!melhor && melhor.d <= 0.12;
   if (!melhor || melhor.d > 0.2) melhor = procurar(null);   // fora do deck (ou leitura fraca): precisa ler igual 2 vezes
   if (!melhor) { CAM.candidato = null; CAM.contagem = 0; return; }
-  if (melhor.c.n === CAM.candidato) CAM.contagem++; else { CAM.candidato = melhor.c.n; CAM.contagem = 1; }
-  if (CAM.contagem === 2 || (rapido && CAM.contagem === 1)) adicionarPeloNome(melhor.c.n);
+  const n = melhor.c.n;
+  if (n === CAM.candidato) CAM.contagem++; else { CAM.candidato = n; CAM.contagem = 1; CAM.votos = {}; }
+  if (!CAM.viuCursor) {   // ainda não viu a setinha nenhuma vez: do jeito antigo, pela ordem
+    if (CAM.contagem === 2 || (rapido && CAM.contagem === 1)) adicionarPeloNome(n);
+    return;
+  }
+  // com a setinha: cada leitura vota no espaço onde o cursor está. A carta vai para o espaço quando o nome já foi lido
+  // 2 vezes (1, se é carta do deck bem lida) e a setinha foi vista lá. Duas cartas iguais lado a lado: o nome não muda,
+  // mas a setinha muda de espaço.
+  if (cur >= 0) {
+    CAM.votos[cur] = (CAM.votos[cur] || 0) + 1;
+    if (CAM.contagem >= 2 || rapido || CAM.votos[cur] >= 2) return colocarNoEspaco(n, cur);
+    return;
+  }
+  // sem a setinha neste quadro: espera o próximo (pôr no espaço errado é pior que esperar)
 }
-function adicionarPeloNome(n) {
+function adicionarPeloNome(n, cur = -1) {
+  if (cur >= 0) return colocarNoEspaco(n, cur);
   if (n === CAM.ultimoAdd) return;   // ainda é a mesma carta embaixo do cursor
   const nome = CARTAS.get(n).nome, livre = CAM.slots.findIndex((s) => s.fixa === undefined);
   const ja = CAM.slots.findIndex((s) => s.fixa === n);
@@ -1547,6 +1612,23 @@ function adicionarPeloNome(n) {
   desenharSlots();
   const lidas = CAM.slots.filter((s) => s.fixa !== undefined).length;
   camStatus(lidas < TAM_MAO ? `✔ ${nome} (${lidas}/${TAM_MAO}). Passe o cursor do jogo para a próxima carta.` : "✔ Mão completa! Confira e toque em “Usar”.", "ok");
+}
+
+// Com a setinha do cursor: a carta lida vai direto para o espaço onde o cursor está.
+// Assim duas cartas iguais em espaços diferentes entram as duas, e voltar o cursor não duplica nada.
+function colocarNoEspaco(n, k) {
+  const chave = n + ":" + k; if (chave === CAM.ultimoAdd) return;
+  const s = CAM.slots[k], nome = CARTAS.get(n).nome;
+  CAM.ultimoAdd = chave;
+  if (CAM.ultimoK !== undefined && k !== CAM.ultimoK) CAM.sentido = k > CAM.ultimoK ? 1 : -1;
+  CAM.ultimoK = k; CAM.ultimoNome = n;
+  const faltam = () => CAM.slots.filter((x) => x.fixa === undefined).length;
+  if (s.fixa === n) return camStatus(`✔ ${nome} (espaço ${k + 1}). ${faltam() ? `Falta(m) ${faltam()} carta(s).` : "Mão completa! Confira e toque em “Usar”."}`, "ok");
+  if (s.fixa !== undefined && !s.pelaBarra && !s.mantida) return camStatus(`Espaço ${k + 1}: você escolheu ${CARTAS.get(s.fixa).nome}, mas li ${nome}. Toque no espaço se quiser trocar.`);
+  Object.assign(s, { fixa: n, pelaBarra: true, mantida: false });
+  try { navigator.vibrate?.(60); } catch (e) {}
+  desenharSlots();
+  camStatus(faltam() ? `✔ ${nome} no espaço ${k + 1}. Falta(m) ${faltam()} carta(s): passe o cursor nelas.` : "✔ Mão completa! Confira e toque em “Usar”.", "ok");
 }
 
 // Tocar num espaço já lido: tirar a carta ou repetir (quando você tem 2 cópias iguais lado a lado)
@@ -1586,12 +1668,12 @@ async function abrirCamera() {
       <span class="cam-legenda">Aponte o quadro para a barra preta com o nome da carta</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="cam-slots" id="cam-slots"></div>
-    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 35)</span></p>
+    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 36)</span></p>
     <label class="cam-foto secundario" id="cam-foto">📷 Ou tirar uma foto da mão<input type="file" accept="image/*" capture="environment" id="cam-arquivo" hidden></label>
     <div class="cam-acoes"><button id="cam-recomecar">Recomeçar</button><button class="principal" id="cam-usar" disabled>Usar estas cartas</button></div>`;
   document.body.append(el);
   document.body.classList.add("sem-rolagem");
-  Object.assign(CAM, { aberta: true, foto: false, mao: null, ultimoAdd: null, slots: slotsNovos(), candidato: null, contagem: 0, ultimoScan: 0 });
+  Object.assign(CAM, { aberta: true, foto: false, mao: null, ultimoAdd: null, slots: slotsNovos(), candidato: null, contagem: 0, ultimoScan: 0, viuCursor: false, ultimoK: undefined, ultimoNome: null, sentido: 1, votos: {} });
   // as cartas que ficaram na mão (depois de jogar ou fundir) já entram preenchidas: só falta ler as novas
   // (com a mão vazia ou cheia, lê tudo de novo)
   const ficaram = estado.mao.length < TAM_MAO ? estado.mao.slice() : [];
@@ -2667,7 +2749,7 @@ async function abrirLeitorBau(modo = "tudo") {
       <input id="lb-topo" type="number" inputmode="numeric" min="0" max="9999" placeholder="?" style="width:84px;font:inherit;padding:6px 8px;border-radius:8px;border:1px solid var(--borda);background:var(--superficie-2);color:var(--texto)"></label>
       <div id="lb-tot" style="font-size:14px"></div><div id="lb-ultimas" class="suave">—</div></div>
     ${modo === "novas" ? `<p class="cam-dica">No jogo, abra o baú (CHEST) e ordene pelas <b>novas</b> (elas ficam no começo, com "New!"). Confira o número do CHEST acima (corrija se estiver errado) e desça a lista devagar até eu avisar que achei todas. Depois toque em <b>Revisar</b>.</p>` : ""}
-    <p class="cam-dica" ${modo === "novas" ? 'style="display:none"' : ""}>No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 35)</span></p>
+    <p class="cam-dica" ${modo === "novas" ? 'style="display:none"' : ""}>No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 36)</span></p>
     <div class="cam-acoes"><button id="lb-recomecar">Recomeçar</button><button class="principal" id="lb-revisar" disabled>Revisar e salvar</button></div>`;
   document.body.append(el);
   document.body.classList.add("sem-rolagem");

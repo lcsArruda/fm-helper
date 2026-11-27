@@ -118,6 +118,16 @@ main { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: m
 .fita-campo { grid-column: 1 / -1; display: flex; align-items: center; gap: 7px; margin-bottom: 6px; font-size: 12px; color: #b7c6f2; }
 .fita-campo img { width: 26px; height: 26px; border-radius: 5px; object-fit: cover; border: 1px solid #3e4f85; flex: none; }
 .fita-campo b { color: #dfe6ff; font-weight: 600; }
+.ti { font-style: normal; font-weight: 400; margin-right: 3px; font-size: .95em; line-height: 1; }
+.mini-campo { display: inline-flex; gap: 2px; margin-left: auto; flex: none; }
+.mini-campo i { font-style: normal; width: 15px; height: 19px; border-radius: 3px; border: 1px solid #34416a; font-size: 9px; line-height: 17px; text-align: center; color: #5d6a90; }
+.mini-campo i.ocup { background: #222c48; }
+.mini-campo i.alvo { background: #5c82dc; border-color: #9fb6f0; color: #fff; font-weight: 700; }
+.espacos { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.folha .espacos button.esp { height: 74px; padding: 4px 2px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font-size: 11px; }
+.folha .espacos button.esp b { font-size: 22px; color: var(--ouro-claro); }
+.folha .espacos button.esp span { color: var(--apagado); font-weight: 500; }
+.folha .espacos button.esp.ocup { opacity: .45; }
 .res .caminho em.no-campo { color: #9fb6f0; font-weight: 600; }
 .legenda { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--suave); margin: -2px 0 2px; }
 .mini { display: block; object-fit: cover; flex: none; border-radius: 6px; background: var(--superficie-2); }
@@ -372,7 +382,9 @@ let HISTORIA = [], RANKS = [], DROP_CARTA = new Map(), DROP_DUEL = new Map(), DU
 const CHAVE_HIST = "fmh-historia-v1";
 let hist = { atual: null, ver: 0, sub: "dicas", ordem: "app", inverter: false, alvo: 0 };
 let farm = { modo: "carta", busca: "", rank: -1 };
-let estado = { mao: [], campo: [] };       // mao: [numero]; campo: [{n, atk, def}]
+let estado = { mao: [], campo: [null, null, null, null, null] };   // mao: [numero]; campo: 5 espaços fixos como no jogo, cada um {n, atk, def} ou null
+function normCampo(c) { const r = (Array.isArray(c) ? c : []).slice(0, TAM_CAMPO).map((m) => (m && CARTAS.has(m.n) ? m : null)); while (r.length < TAM_CAMPO) r.push(null); return r; }
+function qtdCampo() { return estado.campo.filter(Boolean).length; }
 let historico = [];
 let ui = { busca: "", aba: "mao", aberto: null, limite: 30 };
 
@@ -489,6 +501,7 @@ function ordenarFusoes(lista) {
 function fusoesComCampo(campo, mao) {
   const achadas = new Map();
   campo.forEach((m, zona) => {
+    if (!m) return;
     const base = CARTAS.get(m.n);
     for (let k = 1; k <= mao.length; k++) for (const ordem of permutacoes(mao.length, k)) {
       const cartas = [base, ...ordem.map((i) => mao[i])];
@@ -525,7 +538,7 @@ function ler() {
     const s = JSON.parse(localStorage.getItem(CHAVE) || "null");
     if (s && Array.isArray(s.mao) && Array.isArray(s.campo)) {
       estado.mao = s.mao.filter((n) => CARTAS.has(n)).slice(0, TAM_MAO);
-      estado.campo = s.campo.filter((m) => CARTAS.has(m.n)).slice(0, TAM_CAMPO);
+      estado.campo = normCampo(s.campo);
     }
   } catch (e) {}
 }
@@ -544,6 +557,13 @@ function statsTxt(c, atk, def) {
   return `<span class="stats num">${atk ?? c.atk}<small>/${def ?? c.def}</small></span>`;
 }
 
+// símbolo do tipo da carta (como nas listas do jogo, mas com desenhos próprios)
+const ICONES = { "Dragão": "🐉", "Mago": "🧙", "Fera-Guerreira": "🐯", "Demônio": "😈", "Planta": "🌿", "Zumbi": "💀", "Dinossauro": "🦖",
+  "Guerreiro": "⚔️", "Besta Alada": "🦅", "Fera": "🐺", "Rocha": "🪨", "Piro": "🔥", "Trovão": "⚡", "Inseto": "🐛", "Réptil": "🦎",
+  "Peixe": "🐟", "Aqua": "💧", "Serpente Marinha": "🐍", "Fada": "🧚", "Máquina": "⚙️", "Equipamento": "🗡️", "Magia": "✨",
+  "Ritual": "🔮", "Armadilha": "🪤" };
+function ic(c) { const e = c && ICONES[c.tipo]; return e ? `<span class="ti" title="${esc(c.tipo)}">${e}</span>` : ""; }
+
 function mini(n, tam) {   // miniatura da carta (ou o número, se não houver imagem)
   const src = imagem(n);
   return src ? `<img class="mini ${tam}" src="${src}" alt="">` : `<span class="mini sem ${tam}">#${n}</span>`;
@@ -551,15 +571,15 @@ function mini(n, tam) {   // miniatura da carta (ou o número, se não houver im
 
 function zonaCarta(c, attr, pos, extra, stats) {
   const src = imagem(c.n);
-  if (!src) return `<button class="zona cheia${extra}" ${attr} aria-label="${esc(c.nome)}"><span class="pos">${pos}</span><span class="nome" lang="en">${esc(c.nome)}</span>${stats}</button>`;
+  if (!src) return `<button class="zona cheia${extra}" ${attr} aria-label="${esc(c.nome)}"><span class="pos">${pos}</span><span class="nome" lang="en">${ic(c)}${esc(c.nome)}</span>${stats}</button>`;
   return `<button class="zona cheia com-img${extra}" ${attr} aria-label="${esc(c.nome)}"><img src="${src}" alt=""><span class="pos">${pos}</span>
-    <span class="txt"><span class="nome" lang="en">${esc(c.nome)}</span>${stats}</span></button>`;
+    <span class="txt"><span class="nome" lang="en">${ic(c)}${esc(c.nome)}</span>${stats}</span></button>`;
 }
 
 function desenhar() {
   const mao = estado.mao.map((n) => CARTAS.get(n));
   const doMao = mao.length >= 2 ? fusoesDaMao(mao) : [];
-  const doCampo = estado.campo.length && mao.length ? fusoesComCampo(estado.campo, mao) : [];
+  const doCampo = qtdCampo() && mao.length ? fusoesComCampo(estado.campo, mao) : [];
   const lista = ordenarFusoes([...doMao, ...doCampo]);   // tudo junto: mais forte primeiro, com as cartas mais baratas
 
   let zonasMao = "";
@@ -572,14 +592,14 @@ function desenhar() {
   for (let i = 0; i < TAM_CAMPO; i++) {
     const m = estado.campo[i];
     if (m) { const c = CARTAS.get(m.n);
-      zonasCampo += zonaCarta(c, `data-campo="${i}"`, `C${i + 1}`, " campo", statsTxt(c, m.atk, m.def));
-    } else zonasCampo += `<div class="zona vazia">—</div>`;
+      zonasCampo += zonaCarta(c, `data-campo="${i}"`, i + 1, " campo", statsTxt(c, m.atk, m.def));
+    } else zonasCampo += `<div class="zona vazia">${i + 1}</div>`;
   }
 
   let resultados;
   if (!mao.length) resultados = `<div class="vazio">Adicione as cartas da sua mão para ver as fusões.</div>`;
-  else if (mao.length < 2 && !estado.campo.length) resultados = `<div class="vazio">Adicione pelo menos 2 cartas na mão (ou tenha um monstro no campo) para ver as fusões.</div>`;
-  else if (!lista.length) resultados = `<div class="vazio">Nenhuma fusão possível com a mão${estado.campo.length ? " e o campo" : ""}.</div>`;
+  else if (mao.length < 2 && !qtdCampo()) resultados = `<div class="vazio">Adicione pelo menos 2 cartas na mão (ou tenha um monstro no campo) para ver as fusões.</div>`;
+  else if (!lista.length) resultados = `<div class="vazio">Nenhuma fusão possível com a mão${qtdCampo() ? " e o campo" : ""}.</div>`;
   else resultados = lista.slice(0, ui.limite).map((s, i) => cartaoResultado(s, i)).join("") +
     (lista.length > ui.limite ? `<button class="mais-res" id="mais">Mostrar mais (${lista.length - ui.limite})</button>` : "");
 
@@ -588,7 +608,7 @@ function desenhar() {
     <div class="zonas">${zonasMao}</div>
     <button class="btn-camera" id="camera">📷 Ler a mão pela câmera</button>`;
   $("#sec-campo").innerHTML = `
-    <div class="secao-topo"><h2>Seu campo</h2><span>${estado.campo.length}/${TAM_CAMPO}</span></div>
+    <div class="secao-topo"><h2>Seu campo</h2><span>${qtdCampo()}/${TAM_CAMPO} · espaços 1 a 5, da esquerda para a direita</span></div>
     <div class="zonas">${zonasCampo}</div>`;
   $("#sec-res").innerHTML = `
     <div class="secao-topo"><h2>Fusões possíveis</h2><span>${lista.length ? `${lista.length} · mais fortes primeiro, com as cartas mais baratas` : ""}</span></div>
@@ -599,12 +619,35 @@ function desenhar() {
   window._lista = lista;
 }
 
+function miniCampo(alvo) {   // desenho dos 5 espaços do campo, com o espaço certo aceso
+  let h = "";
+  for (let i = 0; i < TAM_CAMPO; i++) h += `<i class="${i === alvo ? "alvo" : estado.campo[i] ? "ocup" : ""}">${i + 1}</i>`;
+  return `<span class="mini-campo" aria-label="espaço ${alvo + 1} de 5">${h}</span>`;
+}
+
+function escolherEspaco(c, pronto) {   // pergunta em qual espaço do campo o monstro foi colocado
+  const livres = estado.campo.map((m, i) => (m ? -1 : i)).filter((i) => i >= 0);
+  if (!livres.length) return avisar("Seu campo já tem 5 monstros. Toque no que saiu do campo primeiro.");
+  if (livres.length === 1) return pronto(livres[0]);
+  let botoes = "";
+  const acoes = { fechar() {} };
+  for (let i = 0; i < TAM_CAMPO; i++) {
+    const m = estado.campo[i];
+    if (m) botoes += `<button class="esp ocup" disabled>${mini(m.n, "m30")}<span>${i + 1}</span></button>`;
+    else { botoes += `<button class="esp" data-acao="e${i}"><b>${i + 1}</b><span>livre</span></button>`; acoes["e" + i] = () => pronto(i); }
+  }
+  abrirFolha(`<div class="cab-folha">${mini(c.n, "m30")}<div><h3>Em qual espaço do campo?</h3>
+    <div class="sub" style="margin:0">${ic(c)}${esc(c.nome)} · conte da esquerda para a direita, como no jogo</div></div></div>
+    <div class="espacos">${botoes}</div>
+    <button data-acao="fechar">Cancelar</button>`, acoes);
+}
+
 function cartaoResultado(s, i) {
   const doCampo = s.zona !== null;
-  const materiais = s.cartas.map((c, j) => `<span class="mat${j === 0 && doCampo ? " no-campo" : ""}">${mini(c.n, "m18")}${esc(c.nome)}</span>`).join('<span class="mais">+</span>');
+  const materiais = s.cartas.map((c, j) => `<span class="mat${j === 0 && doCampo ? " no-campo" : ""}">${mini(c.n, "m18")}${ic(c)}${esc(c.nome)}</span>`).join('<span class="mais">+</span>');
   const tags = [];
   const fita = doCampo ? `<span class="fita-campo">${imagem(s.cartas[0].n) ? `<img src="${imagem(s.cartas[0].n)}" alt="">` : ""}
-      <span>Base já no campo: <b>C${s.zona + 1} · ${esc(s.cartas[0].nome)}</b> <span class="num">${s.baseCampo.atk}/${s.baseCampo.def}</span></span></span>` : "";
+      <span>${s.cartas.length === 2 && !monstro(s.cartas[1]) ? "Use no monstro do campo" : "Junta com o monstro do campo"}: <b>espaço ${s.zona + 1} · ${esc(s.cartas[0].nome)}</b> <span class="num">${s.baseCampo.atk}/${s.baseCampo.def}</span></span>${miniCampo(s.zona)}</span>` : "";
   tags.push(`<span class="tag">mão: ${s.posicoes.join(", ")}</span>`);
   tags.push(`<span class="tag">${s.cartas.length - (s.zona !== null ? 1 : 0)} carta${s.cartas.length - (s.zona !== null ? 1 : 0) > 1 ? "s" : ""} da mão</span>`);
   if (s.equip) tags.push(`<span class="tag equip">equipamento</span>`);
@@ -615,15 +658,15 @@ function cartaoResultado(s, i) {
     corpo = `<div class="passos">
       <div class="passo"><span class="i">1</span><span>Escolha <b>${inicio}</b></span></div>
       ${s.passos.map((p, j) => `<div class="passo"><span class="i">${j + 2}</span><span>${p.tipo === "equip"
-        ? `+ <b>${esc(p.usada.nome)}</b> → equipa, fica <b class="num">${p.atk}/${p.def}</b> <small>(+${p.b})</small>`
-        : `+ <b>${esc(p.usada.nome)}</b> → vira <b>${esc(p.resultado.nome)}</b> <small class="num">${p.atk}/${p.def}</small>`}</span></div>`).join("")}
+        ? `+ <b>${ic(p.usada)}${esc(p.usada.nome)}</b> → equipa, fica <b class="num">${p.atk}/${p.def}</b> <small>(+${p.b})</small>`
+        : `+ <b>${ic(p.usada)}${esc(p.usada.nome)}</b> → vira <b>${ic(p.resultado)}${esc(p.resultado.nome)}</b> <small class="num">${p.atk}/${p.def}</small>`}</span></div>`).join("")}
       <button class="fiz" data-fiz="${i}">Fiz essa fusão no jogo</button>
     </div>`;
   }
   return `<div class="res${aberto ? " aberto" : ""}${doCampo ? " usa-campo" : ""}">
     <button class="cab" data-abrir="${i}" aria-expanded="${aberto}">
       ${fita}<span class="linha-res">${mini(s.final.n, "m54")}<span class="corpo">
-        <span class="topo-res"><span class="titulo">${esc(s.final.nome)}</span><span class="atk num">${s.atk}<small style="color:var(--suave);font-weight:500">/${s.def}</small></span></span>
+        <span class="topo-res"><span class="titulo">${ic(s.final)}${esc(s.final.nome)}</span><span class="atk num">${s.atk}<small style="color:var(--suave);font-weight:500">/${s.def}</small></span></span>
         <span class="caminho">${materiais}</span>
         <span class="tags">${tags.join("")}</span></span></span>
     </button>${corpo}</div>`;
@@ -637,7 +680,7 @@ function desenharSugestoes() {
       .sort((a, b) => (b.n === numero) - (a.n === numero) || (b.busca.startsWith(q)) - (a.busca.startsWith(q)) || a.nome.localeCompare(b.nome)).slice(0, 12);
     sugestoes = achadas.length ? `<div class="sugestoes">${achadas.map((c) => `
       <button class="sugestao" data-add="${c.n}">${imagem(c.n) ? `<img class="mini" src="${imagem(c.n)}" alt="">` : `<span class="mini vazia num">#${c.n}</span>`}
-        <span class="info"><b>${esc(c.nome)}</b><small><span class="num">#${c.n}</span> · ${monstro(c) ? `${esc(c.tipo)} · <span class="num">${c.atk}/${c.def}</span>` : esc(c.tipo)}</small></span>
+        <span class="info"><b>${ic(c)}${esc(c.nome)}</b><small><span class="num">#${c.n}</span> · ${monstro(c) ? `${esc(c.tipo)} · <span class="num">${c.atk}/${c.def}</span>` : esc(c.tipo)}</small></span>
         <span class="mais" aria-hidden="true">+</span></button>`).join("")}</div>`
       : `<div class="vazio" style="margin-top:6px">Nenhuma carta com “${esc(ui.busca)}”. Tente parte do nome em inglês ou o número.</div>`;
   }
@@ -675,7 +718,7 @@ function onde(n, lib, curto) {
 function folhaFontes(nums, lib) {
   const html = nums.map((n) => {
     const c = CARTAS.get(n), lista = fontes(n);
-    return `<h3>${esc(c.nome)}</h3><div class="sub">${lista.length} lugar(es) para farmar${lib ? " · 🔒 = duelista ainda não liberado" : ""}</div>
+    return `<h3>${ic(c)}${esc(c.nome)}</h3><div class="sub">${lista.length} lugar(es) para farmar${lib ? " · 🔒 = duelista ainda não liberado" : ""}</div>
       ${lista.length ? `<div class="parceiros fontes-tab">${lista.map((f) => `<div><span>${esc(f.d)} ${lib ? (lib.has(f.d) ? '<span class="lib">✔</span>' : '<span class="bloq">🔒</span>') : ""}</span>
         <b class="num">${pct(f.t)}</b><small>Rank ${esc(f.r)} · ${f.t}/2048</small></div>`).join("")}</div>` : `<div class="sub">Nenhum duelista dá esta carta.</div>`}`;
   }).join("");
@@ -744,14 +787,14 @@ function desenharHistoria() {
           <p>Juntando as suas cartas com as que dá para farmar ${ehAtual ? "agora" : "nesta etapa"}, o melhor deck chega a <b>força ${plano.forcaSonho}</b> (o seu melhor deck hoje: ${plano.forcaHoje}).</p>
           <p class="suave" style="font-size:12.5px">Montei o deck inteiro de novo, procurando as melhores combinações de fusão (de 2 a 5 cartas) entre as cartas que você tem e as que dá para farmar.</p></div>
         ${plano.comb.length ? `<div class="bloco"><span class="rot">Combinações que o farm libera</span>
-          ${plano.comb.map((f) => `<div class="par-col" style="flex-wrap:wrap">${f.cartas.map((c) => mini(c.n, "m30")).join("+")}= ${mini(f.r.n, "m30")}<span><b>${esc(f.r.nome)}</b> <span class="num">${f.r.atk}</span><br><small class="suave">${f.cartas.map((c) => `${esc(c.nome)}${plano.falta[c.n] ? " (farmar)" : ""}`).join(" + ")}</small></span></div>`).join("")}</div>` : ""}
+          ${plano.comb.map((f) => `<div class="par-col" style="flex-wrap:wrap">${f.cartas.map((c) => mini(c.n, "m30")).join("+")}= ${mini(f.r.n, "m30")}<span><b>${ic(f.r)}${esc(f.r.nome)}</b> <span class="num">${f.r.atk}</span><br><small class="suave">${f.cartas.map((c) => `${esc(c.nome)}${plano.falta[c.n] ? " (farmar)" : ""}`).join(" + ")}</small></span></div>`).join("")}</div>` : ""}
         <p class="suave" style="margin:0">Cartas para farmar. O número verde é <b>quanto o deck dos sonhos perde sem ela</b>, então as duas peças de uma combinação valem o que a combinação vale.</p>
         <div class="chips">${[["vit", "Melhora mais rápido"], ["ganho", "Maior ganho"]].map(([k, t]) => `<button class="chip" data-farm-ord="${k}" aria-pressed="${ordF === k}">${t}</button>`).join("")}</div>
         <p class="suave" style="margin:0;font-size:12.5px">${ordF === "vit" ? "“Melhora mais rápido” = valor × chance de cair: o que mais melhora o deck por vitória no Duelo Livre." : "“Maior ganho” = a carta que mais pesa no deck dos sonhos, não importa quanto demore para cair."}</p>
         ${campoDrops()}
         <div class="linhas">${top.map((x) => `<button class="linha com-img" data-fontes="${x.c.n}">
             <span class="th">${mini(x.c.n, "m44")}<span class="qtd-selo num">+${x.q}</span></span>
-            <span class="nm">${esc(x.c.nome)} <small class="num">#${String(x.c.n).padStart(3, "0")}</small></span>
+            <span class="nm">${ic(x.c)}${esc(x.c.nome)} <small class="num">#${String(x.c.n).padStart(3, "0")}</small></span>
             <span class="vl num lib">+${x.g}</span>
             <span class="det">${monstro(x.c) ? `${x.c.atk}/${x.c.def} · ` : `${esc(x.c.tipo)} · `}farmar ${x.q} (você tem ${colecao.bau[x.c.n] || 0})<br>${txtFonte(x.f)} · ~${vitsPara(x.f.t)} vitória(s) em média por cópia</span></button>`).join("")
           || `<div class="vazio">Nenhuma carta liberada nesta etapa deixa o seu deck mais forte. Avance na história para liberar novos duelistas.</div>`}</div>
@@ -764,19 +807,19 @@ function desenharHistoria() {
       const k = Math.min(hist.alvo, e.alvos.length - 1), a = e.alvos[k], c = CARTAS.get(a.n);
       const prontas = a.receitas.filter(([x, y]) => melhor(x, lib) && melhor(y, lib)).length;
       const direto = melhor(a.n, lib);
-      corpo = `<div class="chips">${e.alvos.map((x, j) => `<button class="chip" data-alvo="${j}" aria-pressed="${j === k}">${esc(CARTAS.get(x.n).nome)}</button>`).join("")}</div>
-        <div class="bloco"><div class="alvo">${mini(c.n, "m64")}<div><h3>${esc(c.nome)}</h3><p class="suave">${esc(c.tipo)} · ATK ${c.atk} / DEF ${c.def}</p></div></div>
+      corpo = `<div class="chips">${e.alvos.map((x, j) => `<button class="chip" data-alvo="${j}" aria-pressed="${j === k}">${ic(CARTAS.get(x.n))}${esc(CARTAS.get(x.n).nome)}</button>`).join("")}</div>
+        <div class="bloco"><div class="alvo">${mini(c.n, "m64")}<div><h3>${ic(c)}${esc(c.nome)}</h3><p class="suave">${esc(c.tipo)} · ATK ${c.atk} / DEF ${c.def}</p></div></div>
           <p>Existem <b>${a.total}</b> pares de cartas que fazem esta fusão. Abaixo, os mais fáceis de juntar agora (${prontas} já dá para farmar as duas cartas).</p>
           <p class="suave">${direto ? `Também dá para ganhar pronto: ${txtFonte(direto)}.` : "Ninguém já liberado dá esta carta pronta. O jeito é fundir."}</p></div>
         <div class="linhas">${a.receitas.map(([x, y]) => `<button class="par" data-fontes="${x},${y}"><span class="lados">
-          <span class="lado">${mini(x, "m40")}<span><b>${esc(CARTAS.get(x).nome)}</b><small>${onde(x, lib, true)}</small></span></span>
+          <span class="lado">${mini(x, "m40")}<span><b>${ic(CARTAS.get(x))}${esc(CARTAS.get(x).nome)}</b><small>${onde(x, lib, true)}</small></span></span>
           <span class="mais-g">+</span>
-          <span class="lado">${mini(y, "m40")}<span><b>${esc(CARTAS.get(y).nome)}</b><small>${onde(y, lib, true)}</small></span></span></span></button>`).join("")}</div>
+          <span class="lado">${mini(y, "m40")}<span><b>${ic(CARTAS.get(y))}${esc(CARTAS.get(y).nome)}</b><small>${onde(y, lib, true)}</small></span></span></span></button>`).join("")}</div>
         <p class="suave" style="margin:0;font-size:12.5px">Toque num par para ver todos os lugares para farmar as duas cartas.</p>`;
     }
   } else {
     corpo = e.chaves.length ? `<div class="linhas">${e.chaves.map((n) => { const c = CARTAS.get(n), fs = fontes(n, lib).slice(0, 3);
-      return `<button class="linha com-img" data-fontes="${n}"><span class="th">${mini(n, "m44")}</span><span class="nm">${esc(c.nome)}</span>
+      return `<button class="linha com-img" data-fontes="${n}"><span class="th">${mini(n, "m44")}</span><span class="nm">${ic(c)}${esc(c.nome)}</span>
         <span class="vl num">${monstro(c) ? `${c.atk}/${c.def}` : esc(c.tipo)}</span>
         <span class="det">${fs.length ? fs.map(txtFonte).join("<br>") : onde(n, lib)}</span></button>`; }).join("")}</div>`
       : `<div class="vazio">Nenhuma carta-chave nesta etapa.</div>`;
@@ -843,7 +886,7 @@ function desenharFarmRes() {
       const achadas = LISTA.filter((c) => c.n === numero || c.busca.includes(q))
         .sort((a, b) => (b.n === numero) - (a.n === numero) || b.busca.startsWith(q) - a.busca.startsWith(q) || a.nome.localeCompare(b.nome)).slice(0, 6);
       corpo = achadas.length ? achadas.map((c) => { const fs = fontes(c.n);
-        return `<div class="bloco"><div class="carta-farm">${mini(c.n, "m64")}<div><h3>${esc(c.nome)} <small class="suave num">#${c.n}</small></h3>
+        return `<div class="bloco"><div class="carta-farm">${mini(c.n, "m64")}<div><h3>${ic(c)}${esc(c.nome)} <small class="suave num">#${c.n}</small></h3>
           <p class="suave">${monstro(c) ? `${esc(c.tipo)} · ${c.atk}/${c.def}` : esc(c.tipo)} · ${fs.length} lugar(es)</p></div></div>
           ${fs.length ? `<div class="linhas">${fs.map((f) => `<div class="linha" style="grid-template-columns:1fr auto"><span class="nm">${esc(f.d)}${marca(f.d)}</span>
             <span class="vl num">${pct(f.t)}</span><span class="det" style="grid-column:1/-1">Rank ${esc(f.r)} · ${f.t}/2048</span></div>`).join("")}</div>`
@@ -859,7 +902,7 @@ function desenharFarmRes() {
       corpo = `<div class="bloco"><h3>${esc(escolhido)}</h3><p class="suave">${lib ? (lib.has(escolhido) ? '<span class="lib">✔ Já liberado no Duelo Livre</span>' : '<span class="bloq">🔒 Ainda não liberado na sua etapa</span>') : "Marque sua etapa na aba História para ver se já está liberado."}</p></div>
         <div class="chips">${[[-1, "Todos"], ...RANKS.map((r, j) => [j, r])].map(([j, t]) => `<button class="chip" data-rank="${j}" aria-pressed="${farm.rank === j}">${t}</button>`).join("")}</div>
         <div class="linhas">${lista.map((f) => { const c = CARTAS.get(f.n);
-          return `<div class="drop-l">${mini(c.n, "m40")}<div class="corpo"><div class="topo-res"><span>${esc(c.nome)}</span><span class="vl num">${pct(f.t)}</span></div>
+          return `<div class="drop-l">${mini(c.n, "m40")}<div class="corpo"><div class="topo-res"><span>${ic(c)}${esc(c.nome)}</span><span class="vl num">${pct(f.t)}</span></div>
             <div class="det">Rank ${esc(f.r)} · ${f.t}/2048 · ${monstro(c) ? `${esc(c.tipo)} ${c.atk}/${c.def}` : esc(c.tipo)}</div></div></div>`; }).join("") || '<div class="vazio">Nada neste rank.</div>'}</div>`;
     } else {
       corpo = (q ? "" : blocoFarmsAgora()) + `<p class="suave" style="margin:0;font-size:13px">Na ordem em que aparecem na história. Toque num duelista para ver o que ele dá.</p>
@@ -954,7 +997,7 @@ function htmlGrupos(x) {
   if (!grupos.length) return "";
   const total = grupos.reduce((s, g) => s + g.total, 0);
   const faixa = (g) => g.lo === g.hi ? `ATK ${g.lo}` : g.lo <= g.min ? `ATK até ${g.hi}` : `ATK de ${g.lo} a ${g.hi}`;
-  const cartaMat = (c) => `<span class="mat">${mini(c.n, "m18")}${esc(c.nome)}</span>`;
+  const cartaMat = (c) => `<span class="mat">${mini(c.n, "m18")}${ic(c)}${esc(c.nome)}</span>`;
   return `<div class="sub" style="margin:6px 0 0">Funde com ${total} carta(s), formando ${grupos.length} resultado(s). Mais fortes primeiro:</div>
     <div class="parceiros grupos">${grupos.map((g) => {
       const partes = g.regras.map((rg) => `<span class="regra">${rotuloRegra(rg.k)} · ${faixa(rg)} <small>(${rg.lista.length} cartas)</small></span>`);
@@ -966,13 +1009,13 @@ function htmlGrupos(x) {
         partes.push(`<details class="varias"><summary>${g.regras.length ? "ou uma destas " : ""}${g.resto.length} cartas variadas <small>(mais comum: ${esc(comum[0])})</small></summary>
           <div class="mats">${g.resto.map(cartaMat).join("")}</div></details>`);
       }
-      return `<div class="grupo-f"><div class="res-g">${mini(g.r.n, "m30")}<span class="nm">${esc(g.r.nome)}</span><b class="num">${g.r.atk}</b></div>
+      return `<div class="grupo-f"><div class="res-g">${mini(g.r.n, "m30")}<span class="nm">${ic(g.r)}${esc(g.r.nome)}</span><b class="num">${g.r.atk}</b></div>
         <div class="com"><span class="rot-com">Junte com:</span>${partes.join('<span class="ou">ou</span>')}</div></div>`;
     }).join("")}</div>`;
 }
 
 function folhaCarta(c, extra) {
-  return `<div class="cab-folha">${mini(c.n, "m104")}<div><h3>${esc(c.nome)}</h3>
+  return `<div class="cab-folha">${mini(c.n, "m104")}<div><h3>${ic(c)}${esc(c.nome)}</h3>
     <div class="sub" style="margin:0">#${c.n} · ${esc(c.tipo)}${monstro(c) ? ` · ${esc(c.atributo)} · ★${c.nivel}<br><b class="num" style="color:var(--ouro-claro)">${c.atk}/${c.def}</b>` : ""}${c.e1 ? ` · ${esc(c.e1)}/${esc(c.e2)}` : ""}</div>
     ${fontes(c.n).length ? `<div class="sub" style="margin:0">Melhor farm: ${txtFonte(fontes(c.n)[0])}</div>` : ""}</div></div>
     ${extra}
@@ -986,9 +1029,11 @@ function tocarMao(i) {
     <button class="perigo" data-acao="tirar">Tirar da mão (adicionei errado)</button>
     <button data-acao="fechar">Fechar</button>`), {
     jogar() {
-      if (monstro(c) && estado.campo.length >= TAM_CAMPO) return avisar("Seu campo já tem 5 monstros. Toque no que saiu do campo primeiro.");
-      mudar(() => { estado.mao.splice(i, 1); if (monstro(c)) estado.campo.push({ n: c.n, atk: c.atk, def: c.def }); });
-      avisar(monstro(c) ? `${c.nome} foi para o campo.` : `${c.nome} foi usada e saiu da mão.`);
+      if (!monstro(c)) { mudar(() => estado.mao.splice(i, 1)); return avisar(`${c.nome} foi usada e saiu da mão.`); }
+      escolherEspaco(c, (z) => {
+        mudar(() => { estado.mao.splice(i, 1); estado.campo[z] = { n: c.n, atk: c.atk, def: c.def }; });
+        avisar(`${c.nome} foi para o espaço ${z + 1} do campo.`);
+      });
     },
     tirar() { mudar(() => estado.mao.splice(i, 1)); },
     fechar() {},
@@ -1001,21 +1046,22 @@ function tocarCampo(i) {
     <div class="sub">No campo agora: <b class="num" style="color:var(--ouro-claro)">${m.atk}/${m.def}</b></div>
     <button class="perigo" data-acao="saiu">Saiu do campo (destruído ou usado)</button>
     <button data-acao="fechar">Fechar</button>`), {
-    saiu() { mudar(() => estado.campo.splice(i, 1)); avisar(`${c.nome} saiu do campo.`); },
+    saiu() { mudar(() => { estado.campo[i] = null; }); avisar(`${c.nome} saiu do espaço ${i + 1} do campo.`); },
     fechar() {},
   });
 }
 
 function fizFusao(i) {
   const s = window._lista[i];
-  if (s.zona === null && estado.campo.length >= TAM_CAMPO) return avisar("Seu campo já tem 5 monstros. Toque no que saiu do campo e tente de novo.");
-  mudar(() => {
-    for (const p of [...s.posicoes].sort((a, b) => b - a)) estado.mao.splice(p - 1, 1);
-    const novo = { n: s.final.n, atk: s.atk, def: s.def };
-    if (s.zona === null) estado.campo.push(novo); else estado.campo[s.zona] = novo;
-  });
-  avisar(`${s.final.nome} (ATK ${s.atk}) foi para o campo. Agora adicione as cartas novas que você comprou.`);
-  window.scrollTo({ top: 0, behavior: "smooth" });
+  const aplicar = (z) => {
+    mudar(() => {
+      for (const p of [...s.posicoes].sort((a, b) => b - a)) estado.mao.splice(p - 1, 1);
+      estado.campo[z] = { n: s.final.n, atk: s.atk, def: s.def };
+    });
+    avisar(`${s.final.nome} (ATK ${s.atk}) foi para o espaço ${z + 1} do campo. Agora adicione as cartas novas que você comprou.`);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+  if (s.zona !== null) aplicar(s.zona); else escolherEspaco(s.final, aplicar);
 }
 
 // ---------- Ler a mão pela câmera ----------
@@ -1650,7 +1696,7 @@ function escolherSlot(k) {
   const el = document.createElement("div");
   el.className = "cam-escolha";
   el.innerHTML = `<div class="cam-escolha-caixa"><b>Espaço ${k + 1}: qual é a carta?</b>
-    ${ops.map(([, n]) => `<button data-cam-por="${k}:${n}">${mini(n, "m40")}<span>${esc(CARTAS.get(n).nome)}</span></button>`).join("")}
+    ${ops.map(([, n]) => `<button data-cam-por="${k}:${n}">${mini(n, "m40")}<span>${ic(CARTAS.get(n))}${esc(CARTAS.get(n).nome)}</span></button>`).join("")}
     <button data-cam-por="${k}:0"><span class="mini sem m40">—</span><span>Espaço vazio / nenhuma destas</span></button>
     <button data-cam-por="x">Cancelar</button></div>`;
   $("#cam").append(el);
@@ -1668,7 +1714,7 @@ async function abrirCamera() {
       <span class="cam-legenda">Aponte o quadro para a barra preta com o nome da carta</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="cam-slots" id="cam-slots"></div>
-    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 36)</span></p>
+    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 37)</span></p>
     <label class="cam-foto secundario" id="cam-foto">📷 Ou tirar uma foto da mão<input type="file" accept="image/*" capture="environment" id="cam-arquivo" hidden></label>
     <div class="cam-acoes"><button id="cam-recomecar">Recomeçar</button><button class="principal" id="cam-usar" disabled>Usar estas cartas</button></div>`;
   document.body.append(el);
@@ -2260,7 +2306,7 @@ function abasTroca(sug, nDeck) {
 function linhaCol(n, q, extra = "") {
   const c = CARTAS.get(n), noDeck = colecao.deck[n] || 0;
   return `<div class="linha com-img col-linha"><span class="th">${mini(n, "m44")}<span class="qtd-selo num">${q}x</span></span>
-    <span class="nm">${esc(c.nome)} <small class="num">#${String(n).padStart(3, "0")}</small></span>
+    <span class="nm">${ic(c)}${esc(c.nome)} <small class="num">#${String(n).padStart(3, "0")}</small></span>
     <span class="vl num">${monstro(c) ? `${c.atk}/${c.def}` : esc(c.tipo)}</span>
     <span class="det">${extra}</span></div>`;
 }
@@ -2316,7 +2362,7 @@ function desenharColecao() {
           <p class="verificar">Raigeki entra sempre que você tem (é a carta mais importante do jogo). Também entram, se você tiver: Swords of Revealing Light, Widespread Ruin, Dark Hole e um campo (Forest, Mountain…) quando vários monstros do deck ganham com ele.</p>
           <button class="btn ouro" id="col-usar-sug">Usar como meu deck</button></div>
         ${melhoresFusoes(r).length ? `<div class="bloco"><span class="rot">Melhores fusões dentro deste deck</span>
-          ${melhoresFusoes(r).map((f) => `<div class="par-col" style="flex-wrap:wrap">${f.cartas.map((c) => mini(c.n, "m30")).join("+")}= ${mini(f.r.n, "m30")}<span><b>${esc(f.r.nome)}</b> <span class="num">${f.r.atk}</span>${f.cartas.length > 2
+          ${melhoresFusoes(r).map((f) => `<div class="par-col" style="flex-wrap:wrap">${f.cartas.map((c) => mini(c.n, "m30")).join("+")}= ${mini(f.r.n, "m30")}<span><b>${ic(f.r)}${esc(f.r.nome)}</b> <span class="num">${f.r.atk}</span>${f.cartas.length > 2
             ? `<br><small class="suave">${f.cartas.length} cartas, nesta ordem: ${f.cartas.map((c) => esc(c.nome)).join(" + ")}</small>` : f.jeitos > 1 ? `<br><small class="suave">${f.jeitos} jeitos de fazer</small>` : ""}</span></div>`).join("")}</div>` : ""}
         ${abasTroca(s.deck, nDeck)}`;
     }
@@ -2335,7 +2381,7 @@ function desenharAchadas() {
   const num = /^\d+$/.test(q) ? +q : null;
   const achadas = LISTA.filter((c) => num ? c.n === num : c.busca.includes(q)).slice(0, 8);
   box.innerHTML = achadas.map((c) => `<button class="linha com-img" data-col-add="${c.n}"><span class="th">${mini(c.n, "m44")}</span>
-    <span class="nm">${esc(c.nome)} <small class="num">#${String(c.n).padStart(3, "0")}</small></span><span class="vl">+ adicionar</span></button>`).join("")
+    <span class="nm">${ic(c)}${esc(c.nome)} <small class="num">#${String(c.n).padStart(3, "0")}</small></span><span class="vl">+ adicionar</span></button>`).join("")
     || `<div class="vazio">Nenhuma carta com esse nome.</div>`;
 }
 
@@ -2749,7 +2795,7 @@ async function abrirLeitorBau(modo = "tudo") {
       <input id="lb-topo" type="number" inputmode="numeric" min="0" max="9999" placeholder="?" style="width:84px;font:inherit;padding:6px 8px;border-radius:8px;border:1px solid var(--borda);background:var(--superficie-2);color:var(--texto)"></label>
       <div id="lb-tot" style="font-size:14px"></div><div id="lb-ultimas" class="suave">—</div></div>
     ${modo === "novas" ? `<p class="cam-dica">No jogo, abra o baú (CHEST) e ordene pelas <b>novas</b> (elas ficam no começo, com "New!"). Confira o número do CHEST acima (corrija se estiver errado) e desça a lista devagar até eu avisar que achei todas. Depois toque em <b>Revisar</b>.</p>` : ""}
-    <p class="cam-dica" ${modo === "novas" ? 'style="display:none"' : ""}>No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 36)</span></p>
+    <p class="cam-dica" ${modo === "novas" ? 'style="display:none"' : ""}>No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 37)</span></p>
     <div class="cam-acoes"><button id="lb-recomecar">Recomeçar</button><button class="principal" id="lb-revisar" disabled>Revisar e salvar</button></div>`;
   document.body.append(el);
   document.body.classList.add("sem-rolagem");
@@ -2774,7 +2820,7 @@ function desenharLidasBau() {
   $("#lb-tot").innerHTML = r.html;
   const ti = $("#lb-topo"); if (ti && document.activeElement !== ti && r.tj !== null && +ti.value !== r.tj) ti.value = r.tj;
   $("#lb-ultimas").innerHTML = r.ok.length ? "Últimas lidas (baú / deck):<br>" + r.ok.slice(-4).map((x) =>
-    `${esc(CARTAS.get(x.n).nome)} <span class="num" style="color:var(--texto)">${x.bau ?? "?"} / ${x.deck}</span>`).join("<br>") : "—";
+    `${ic(CARTAS.get(x.n))}${esc(CARTAS.get(x.n).nome)} <span class="num" style="color:var(--texto)">${x.bau ?? "?"} / ${x.deck}</span>`).join("<br>") : "—";
   $("#lb-revisar").disabled = !r.ok.length;
 }
 async function cicloBau() {
@@ -2855,7 +2901,7 @@ function desenharRevisao() {
   const umaVez = LB.ordem.filter((n) => !confirmadas.has(n) && !LB.cartas.get(n)?.fora && (LB.cartas.get(n)?.d ?? 1) <= 0.2 && !(novas && LB.base.fora[n] != null));
   const item = (x) => `<div class="bloco rev-item">
       ${LB.fotos.get(x.n) ? `<img class="rev-foto" src="${LB.fotos.get(x.n)}" alt="Foto da linha no jogo">` : `<div class="suave" style="font-size:12.5px">(sem foto)</div>`}
-      <div class="rev-linha"><span class="nm">${esc(CARTAS.get(x.n).nome)} <small class="num">#${String(x.n).padStart(3, "0")}</small></span>
+      <div class="rev-linha"><span class="nm">${ic(CARTAS.get(x.n))}${esc(CARTAS.get(x.n).nome)} <small class="num">#${String(x.n).padStart(3, "0")}</small></span>
         ${x.motivo ? `<span class="bloq" style="font-size:12.5px">⚠ ${x.motivo}</span>` : duv.has(x.n) ? `<span class="lib" style="font-size:12.5px">✔ conferida</span>` : ""}</div>
       ${novas ? `<div class="suave" style="font-size:12.5px">Antes: baú ${LB.base.fora[x.n] ?? 0} · deck ${LB.base.deck[x.n] ?? 0}${LB.base.fora[x.n] == null && !LB.base.deck[x.n] ? " (você não tinha)" : ""}</div>` : ""}
       <div class="col-qtd" style="justify-content:flex-start;flex-wrap:wrap;gap:6px">
@@ -2880,7 +2926,7 @@ function desenharRevisao() {
     ${duvidas.length ? `<h3 style="margin:4px 0 0">${novas ? "O que mudou" : "Confira estas primeiro"} (${duvidas.length})</h3><p class="suave" style="margin:0;font-size:12.5px">Acerte os números com − e +. Quando estiver certo, toque em <b>✔ Está certo</b> e ela sai daqui. Se o nome estiver errado, toque em <b>✎ Carta errada</b>.</p>${duvidas.map(item).join("")}` : ""}
     ${umaVez.length ? `<h3 style="margin:4px 0 0">Vistas só uma vez (${umaVez.length})</h3><p class="suave" style="margin:0;font-size:12.5px">O app viu estas cartas de relance e não teve certeza. Olhe a foto: se você tem a carta, toque em <b>✔ Eu tenho</b>. Se não, pode deixar: elas não entram no baú.</p>${umaVez.map((n) => `<div class="bloco rev-item">
       ${LB.fotos.get(n) ? `<img class="rev-foto" src="${LB.fotos.get(n)}" alt="Foto da linha no jogo">` : `<div class="suave" style="font-size:12.5px">(sem foto)</div>`}
-      <div class="rev-linha"><span class="nm">${esc(CARTAS.get(n).nome)} <small class="num">#${String(n).padStart(3, "0")}</small></span></div>
+      <div class="rev-linha"><span class="nm">${ic(CARTAS.get(n))}${esc(CARTAS.get(n).nome)} <small class="num">#${String(n).padStart(3, "0")}</small></span></div>
       <div class="col-qtd" style="justify-content:flex-start;flex-wrap:wrap;gap:6px"><button class="btn-icone" data-rev="tenho:${n}">✔ Eu tenho</button></div></div>`).join("")}` : ""}
     ${novas ? (certas.length ? `<p class="suave" style="font-size:12.5px">Mais ${certas.length} cartas lidas iguais ao que já estava salvo (não precisa conferir).</p>` : "")
       : certas.length ? `<h3 style="margin:4px 0 0">Lidas com segurança (${certas.length})</h3>${certas.map(item).join("")}` : ""}
@@ -2925,7 +2971,7 @@ function desenharTrocaRev() {
   const num = /^\d+$/.test(q) ? +q : null;
   const achadas = LISTA.filter((c) => num ? c.n === num : c.busca.includes(q)).slice(0, 6);
   box.innerHTML = achadas.map((c) => `<button class="linha com-img" data-rev="para:${LB.revTroca}:${c.n}"><span class="th">${mini(c.n, "m44")}</span>
-    <span class="nm">${esc(c.nome)} <small class="num">#${String(c.n).padStart(3, "0")}</small></span><span class="vl">é esta</span></button>`).join("")
+    <span class="nm">${ic(c)}${esc(c.nome)} <small class="num">#${String(c.n).padStart(3, "0")}</small></span><span class="vl">é esta</span></button>`).join("")
     || `<div class="vazio">Nenhuma carta com esse nome.</div>`;
 }
 function salvarBau() {

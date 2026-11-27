@@ -716,7 +716,10 @@ function desenharHistoria() {
         : si.s === "bau" ? "Você já tem as cartas: abra Minhas cartas → Melhores decks e monte o deck sugerido."
         : `Nem o melhor deck com o seu baú chega lá. Veja a aba <b>Para farmar</b> (ou a aba Farm).`}
         ${si.op !== null ? "A força do adversário vem do deck dele no jogo (as cartas que ele pode ter e a chance de cada uma), medida do mesmo jeito que a sua: o monstro mais forte que dá para pôr em campo com a mão inicial, contando fusões." : "Não achei o deck deste adversário: a régua é o deck ideal com as cartas que dá para farmar até esta etapa."}
-        É uma comparação média: a sorte da mão ainda conta, e magias e armadilhas ficam de fora.</p></div>` : "";
+        É uma comparação média: a sorte da mão ainda conta, e magias e armadilhas ficam de fora.</p>
+      ${si.perfil ? `<p class="suave"><b>Monstro mais forte.</b> ${esc(e.duelista)} costuma chegar a <b>${si.perfil.ameaca}</b> de ATK (em 1 de cada 20 mãos) e, no máximo, faz <b>${esc(nomeFusao(si.perfil.max))}</b>${esc(comoFaz(si.perfil.max))}.
+        O seu deck atual faz no máximo <b>${esc(nomeFusao(si.mxAtual))}</b>${esc(comoFaz(si.mxAtual))}${si.mxBau.n !== null ? `; o melhor deck com o seu baú, <b>${esc(nomeFusao(si.mxBau))}</b>${esc(comoFaz(si.mxBau))}` : ""}.</p>
+        ${si.perfil.max.atk > Math.max(si.mxAtual.atk, si.mxBau.atk) ? `<p class="bloq" style="font-size:13px">⚠️ Ele pode fazer ${esc(nomeFusao(si.perfil.max))}, mais forte que qualquer monstro que você consegue fazer. Se ele aparecer, só magia (ex.: Raigeki) ou armadilha resolve.</p>` : ""}` : ""}</div>` : "";
   let corpo = "";
   if (hist.sub === "dicas") {
     const alvos = e.alvos.map((a) => CARTAS.get(a.n).nome);
@@ -1583,7 +1586,7 @@ async function abrirCamera() {
       <span class="cam-legenda">Aponte o quadro para a barra preta com o nome da carta</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="cam-slots" id="cam-slots"></div>
-    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 34)</span></p>
+    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 35)</span></p>
     <label class="cam-foto secundario" id="cam-foto">📷 Ou tirar uma foto da mão<input type="file" accept="image/*" capture="environment" id="cam-arquivo" hidden></label>
     <div class="cam-acoes"><button id="cam-recomecar">Recomeçar</button><button class="principal" id="cam-usar" disabled>Usar estas cartas</button></div>`;
   document.body.append(el);
@@ -2086,30 +2089,66 @@ function forcaRef(i) {
   if (!cacheRef.has(i)) { const d = {}; for (const [n, q] of HISTORIA[i].deck) d[n] = (d[n] || 0) + q; cacheRef.set(i, forcaDeck(d)); }
   return cacheRef.get(i);
 }
-// Força do adversário: a mesma "força da mão", com mãos tiradas do deck dele (dados do jogo: cada carta do deck dele
-// é sorteada com a chance em 2048 de cada carta). O computador também funde as cartas da mão.
+// Monstro mais forte que dá para fazer com estas cartas: sozinho ou fundindo em cadeia (até 5 cartas).
+// Conta também o melhor equipamento do conjunto que serve nele.
+// Devolve { n, atk (com o equipamento), base (sem), eq (equipamento ou null), cartas: [números na ordem de fundir] }.
+function maxMonstro(ns) {
+  const { RES, ATK, MON, EB, EQOK } = tabelasForca(), ms = [...new Set(ns)].filter((n) => MON[n]);
+  const eqs = [...new Set(ns)].filter((n) => EB[n] && EQOK[n]);
+  const comEq = (r) => { let b = 0, e = null; for (const q of eqs) if (EQOK[q][r] && EB[q] > b) { b = EB[q]; e = q; } return { atk: ATK[r] + b, eq: e }; };
+  const de = new Map();   // monstro -> [base, carta usada] (como chegou nele)
+  let best = { n: null, atk: -1, base: 0, eq: null }, nivel = ms.slice();
+  const ver = (x) => { const c = comEq(x); if (c.atk > best.atk) best = { n: x, atk: c.atk, base: ATK[x], eq: c.eq }; };
+  for (const n of ms) { de.set(n, null); ver(n); }
+  for (let k = 2; k <= 5; k++) {
+    const prox = [];
+    for (const r of nivel) for (const m of ms) { const x = RES[r * 1024 + m]; if (!x || de.has(x)) continue; de.set(x, [r, m]); prox.push(x); ver(x); }
+    nivel = prox;
+  }
+  const cartas = []; for (let x = best.n; x !== null && de.get(x); x = de.get(x)[0]) cartas.unshift(de.get(x)[1]);
+  if (best.n !== null) { let x = best.n; while (de.get(x)) x = de.get(x)[0]; cartas.unshift(x); }
+  return { ...best, cartas };
+}
+const maxDoDeck = (deck) => maxMonstro(Object.keys(deck).map(Number).filter((n) => deck[n] > 0));
+// Adversário (dados do jogo: cada carta do deck dele é sorteada com a chance em 2048 de cada carta). O computador também funde.
+//  media  = a mesma "força da mão" que a sua;
+//  ameaca = o mais forte que ele consegue pôr em campo em pelo menos 1 de cada 20 mãos (costuma aparecer num duelo);
+//  max    = o monstro mais forte que o deck dele consegue fazer (mesmo que raro).
 const cacheOp = new Map();
-function forcaOponente(nome) {
+function perfilOponente(nome) {
   // "Heishin (duelo da história)" -> Heishin; "DarkNite / Nitemare" -> o mais forte dos dois
   const nomes = nome.replace(/\s*\(.*\)/, "").split(/\s*\/\s*/).filter((x) => DECK_DUEL.has(x));
   if (!nomes.length) return null;
-  return Math.max(...nomes.map((nm) => {
+  const ps = nomes.map((nm) => {
     if (cacheOp.has(nm)) return cacheOp.get(nm);
     const pool = DECK_DUEL.get(nm), acum = []; let s = 0;
     for (const [n, t] of pool) { s += t; acum.push([s, n]); }
     const rnd = sorteador(5), tira = () => { const x = rnd() * s; for (const [a, n] of acum) if (x < a) return n; return acum[acum.length - 1][1]; };
-    let tot = 0; const N = 2000;
-    for (let h = 0; h < N; h++) tot += forcaMao([tira(), tira(), tira(), tira(), tira()]);
-    const v = Math.round(tot / N); cacheOp.set(nm, v); return v;
-  }));
+    const N = 2000, vs = [];
+    for (let h = 0; h < N; h++) vs.push(forcaMao([tira(), tira(), tira(), tira(), tira()]));
+    vs.sort((a, b) => b - a);
+    const max = maxMonstro(pool.map(([n]) => n));
+    const v = { nome: nm, media: Math.round(vs.reduce((a, b) => a + b, 0) / N), ameaca: Math.min(vs[Math.floor(N * 0.05)], max.atk), max };
+    cacheOp.set(nm, v); return v;
+  });
+  return ps.sort((a, b) => b.media - a.media)[0];
 }
+const forcaOponente = (nome) => perfilOponente(nome)?.media ?? null;
+const nomeFusao = (m) => m.n === null ? "—" : m.eq ? `${CARTAS.get(m.n).nome} + ${CARTAS.get(m.eq).nome} = ${m.atk}` : `${CARTAS.get(m.n).nome} ${m.atk}`;
+const comoFaz = (m) => m.cartas.length > 1 ? ` (${m.cartas.map((n) => CARTAS.get(n).nome).join(" + ")})` : "";
+let cacheMaxAtual = null;
+function maxAtual() { const k = JSON.stringify(colecao.deck); if (cacheMaxAtual?.k !== k) cacheMaxAtual = { k, v: maxDoDeck(colecao.deck) }; return cacheMaxAtual.v; }
 function situacaoEtapa(i) {
-  const op = forcaOponente(HISTORIA[i].duelista), ref = forcaRef(i);
+  const perfil = perfilOponente(HISTORIA[i].duelista), op = perfil?.media ?? null, ref = forcaRef(i);
   const alvo = op ?? Math.round(ref * 0.9);   // sem o deck do adversário: usa a referência da etapa
-  const atual = somaQtd(colecao.deck) >= TAM_DECK ? forcaAtual() : 0;
-  const bau = somaQtd(colecao.bau) ? (sugerirDecks()[0].forca || 0) : 0;
-  const s = atual >= alvo ? "ok" : bau >= alvo ? "bau" : "farm";
-  return { s, ref, op, alvo, atual, bau };
+  const temDeck = somaQtd(colecao.deck) >= TAM_DECK;
+  const atual = temDeck ? forcaAtual() : 0;
+  const sug = somaQtd(colecao.bau) ? sugerirDecks()[0] : null, bau = sug?.forca || 0;
+  const mxAtual = temDeck ? maxAtual() : { n: null, atk: 0, cartas: [] }, mxBau = sug ? (sug.max ||= maxDoDeck(sug.deck)) : { n: null, atk: 0, cartas: [] };
+  // dá conta = mão média tão forte quanto a dele E consegue fazer um monstro que encara o que ele costuma fazer
+  const ameaca = perfil ? perfil.ameaca : 0;
+  const s = atual >= alvo && mxAtual.atk >= ameaca ? "ok" : bau >= alvo && mxBau.atk >= ameaca ? "bau" : "farm";
+  return { s, ref, op, alvo, atual, bau, perfil, mxAtual, mxBau };
 }
 const SIT = { ok: ["🟢", "Seu deck atual dá conta"], bau: ["🟡", "Dá para melhorar com cartas do seu baú"], farm: ["🔴", "Precisa farmar"] };
 
@@ -2187,6 +2226,9 @@ function desenharColecao() {
         ${sugs.length > 1 ? `<div class="seletor" role="group" aria-label="Sugestão">${sugs.map((x, j) => `<button data-col-sug="${j}" aria-pressed="${j === k}">${esc(x.nome)}</button>`).join("")}</div>` : ""}
         <div class="bloco"><span class="rot">Sugestão: ${esc(s.nome)}</span><p>${esc(s.desc)}</p>
           ${s.forca ? `<p><b>Força da mão: ${s.forca}</b>${atual && nDeck >= TAM_DECK ? cmp(s.forca, forcaAtual()) + ` (seu deck atual: ${forcaAtual()})` : ""}<br><span class="suave">= ATK médio do monstro mais forte que dá para jogar na mão inicial (com fusões e equipamentos), em 2000 mãos sorteadas.</span></p>` : ""}
+          ${(() => { const mx = s.max ||= maxDoDeck(s.deck), pf = hist.atual !== null ? perfilOponente(HISTORIA[hist.atual].duelista) : null;
+            return `<p><b>Monstro mais forte que este deck faz: ${esc(nomeFusao(mx))}</b>${mx.cartas.length > 1 ? `<br><span class="suave">${esc(mx.cartas.map((n) => CARTAS.get(n).nome).join(" + "))}</span>` : ""}
+              ${pf ? `<br><span class="${mx.atk >= pf.ameaca ? "lib" : "bloq"}">Seu adversário atual (${esc(HISTORIA[hist.atual].duelista)}) costuma chegar a ${pf.ameaca} e no máximo faz ${esc(nomeFusao(pf.max))}.</span>` : ""}</p>`; })()}
           <p class="suave">${r.total} cartas · ${r.monstros} monstros (ATK médio de cada carta sozinha: ${r.media} — cartas fracas que fundem bem valem mais do que parecem) · ${r.equips} equipamentos</p>
           ${r.total < TAM_DECK ? `<p class="bloq">Só deu ${r.total} cartas com o que está no baú (o jogo pede ${TAM_DECK}).</p>` : ""}
           <p class="verificar">Raigeki entra sempre que você tem (é a carta mais importante do jogo). Também entram, se você tiver: Swords of Revealing Light, Widespread Ruin, Dark Hole e um campo (Forest, Mountain…) quando vários monstros do deck ganham com ele.</p>
@@ -2625,7 +2667,7 @@ async function abrirLeitorBau(modo = "tudo") {
       <input id="lb-topo" type="number" inputmode="numeric" min="0" max="9999" placeholder="?" style="width:84px;font:inherit;padding:6px 8px;border-radius:8px;border:1px solid var(--borda);background:var(--superficie-2);color:var(--texto)"></label>
       <div id="lb-tot" style="font-size:14px"></div><div id="lb-ultimas" class="suave">—</div></div>
     ${modo === "novas" ? `<p class="cam-dica">No jogo, abra o baú (CHEST) e ordene pelas <b>novas</b> (elas ficam no começo, com "New!"). Confira o número do CHEST acima (corrija se estiver errado) e desça a lista devagar até eu avisar que achei todas. Depois toque em <b>Revisar</b>.</p>` : ""}
-    <p class="cam-dica" ${modo === "novas" ? 'style="display:none"' : ""}>No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 34)</span></p>
+    <p class="cam-dica" ${modo === "novas" ? 'style="display:none"' : ""}>No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 35)</span></p>
     <div class="cam-acoes"><button id="lb-recomecar">Recomeçar</button><button class="principal" id="lb-revisar" disabled>Revisar e salvar</button></div>`;
   document.body.append(el);
   document.body.classList.add("sem-rolagem");

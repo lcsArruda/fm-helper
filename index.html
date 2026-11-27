@@ -462,6 +462,30 @@ function fusoesDaMao(mao) {
   return ordenar([...achadas.values()]);
 }
 
+// Ordem da lista de fusões:
+// 1º jeito mais barato de fazer o monstro mais forte, 1º jeito mais barato do 2º monstro mais forte, … ;
+// depois o 2º jeito mais barato do monstro mais forte, o 2º do 2º monstro, e assim por diante.
+// "Barato" = soma do ATK das cartas gastas (equipamento conta como 500); empate: menos cartas.
+function custoFusao(s) {
+  return s.cartas.reduce((t, c, j) => t + (j === 0 && s.zona !== null ? s.baseCampo.atk : monstro(c) ? c.atk : 500), 0);
+}
+function ordenarFusoes(lista) {
+  const grupos = new Map(), vistas = new Set();
+  // as mesmas cartas em outra ordem dando o mesmo monstro: fica só uma (a ordem mais simples)
+  const ordemSimples = [...lista].sort((a, b) => a.cartas.length - b.cartas.length || a.posicoes.join().localeCompare(b.posicoes.join()));
+  for (const s of ordemSimples) {
+    const k = s.final.n + "|" + s.atk, u = k + "|" + (s.zona ?? "m") + "|" + [...s.posicoes].sort().join();
+    if (vistas.has(u)) continue; vistas.add(u);
+    if (!grupos.has(k)) grupos.set(k, []); grupos.get(k).push(s);
+  }
+  const gs = [...grupos.values()].map((g) => g.sort((a, b) => custoFusao(a) - custoFusao(b) || a.cartas.length - b.cartas.length ||
+    (a.zona ?? -1) - (b.zona ?? -1) || a.posicoes.join().localeCompare(b.posicoes.join())));
+  gs.sort((a, b) => b[0].atk - a[0].atk || b[0].def - a[0].def || a[0].final.nome.localeCompare(b[0].final.nome));
+  const out = [], maxLen = Math.max(0, ...gs.map((g) => g.length));
+  for (let r = 0; r < maxLen; r++) for (const g of gs) if (g[r]) out.push(g[r]);
+  return out;
+}
+
 function fusoesComCampo(campo, mao) {
   const achadas = new Map();
   campo.forEach((m, zona) => {
@@ -470,6 +494,8 @@ function fusoesComCampo(campo, mao) {
       const cartas = [base, ...ordem.map((i) => mao[i])];
       const passos = simular(cartas, m.atk, m.def);
       if (!passos || !passos.length) continue;
+      // fundir com o monstro do campo e ficar com um monstro mais fraco (ou igual) não vale a pena: não sugere
+      if (passos[passos.length - 1].atk <= m.atk) continue;
       const chave = zona + "|" + cartas.slice(1).map((c) => c.n).join(",");
       if (!achadas.has(chave)) achadas.set(chave, montarSeq(cartas, passos, ordem, zona, m));
     }
@@ -534,7 +560,7 @@ function desenhar() {
   const mao = estado.mao.map((n) => CARTAS.get(n));
   const doMao = mao.length >= 2 ? fusoesDaMao(mao) : [];
   const doCampo = estado.campo.length && mao.length ? fusoesComCampo(estado.campo, mao) : [];
-  const lista = ordenar([...doMao, ...doCampo]);   // tudo junto: da mais forte para a mais fraca
+  const lista = ordenarFusoes([...doMao, ...doCampo]);   // tudo junto: mais forte primeiro, com as cartas mais baratas
 
   let zonasMao = "";
   for (let i = 0; i < TAM_MAO; i++) {
@@ -565,7 +591,7 @@ function desenhar() {
     <div class="secao-topo"><h2>Seu campo</h2><span>${estado.campo.length}/${TAM_CAMPO}</span></div>
     <div class="zonas">${zonasCampo}</div>`;
   $("#sec-res").innerHTML = `
-    <div class="secao-topo"><h2>Fusões possíveis</h2><span>${lista.length ? `${lista.length} · mais fortes primeiro` : ""}</span></div>
+    <div class="secao-topo"><h2>Fusões possíveis</h2><span>${lista.length ? `${lista.length} · mais fortes primeiro, com as cartas mais baratas` : ""}</span></div>
     ${doCampo.length ? `<div class="legenda"><span class="marca-campo"></span>Com faixa azul = usa um monstro que já está no seu campo</div>` : ""}
     <div class="resultados">${resultados}</div>`;
   desenharSugestoes();
@@ -1557,7 +1583,7 @@ async function abrirCamera() {
       <span class="cam-legenda">Aponte o quadro para a barra preta com o nome da carta</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="cam-slots" id="cam-slots"></div>
-    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 33)</span></p>
+    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 34)</span></p>
     <label class="cam-foto secundario" id="cam-foto">📷 Ou tirar uma foto da mão<input type="file" accept="image/*" capture="environment" id="cam-arquivo" hidden></label>
     <div class="cam-acoes"><button id="cam-recomecar">Recomeçar</button><button class="principal" id="cam-usar" disabled>Usar estas cartas</button></div>`;
   document.body.append(el);
@@ -2599,7 +2625,7 @@ async function abrirLeitorBau(modo = "tudo") {
       <input id="lb-topo" type="number" inputmode="numeric" min="0" max="9999" placeholder="?" style="width:84px;font:inherit;padding:6px 8px;border-radius:8px;border:1px solid var(--borda);background:var(--superficie-2);color:var(--texto)"></label>
       <div id="lb-tot" style="font-size:14px"></div><div id="lb-ultimas" class="suave">—</div></div>
     ${modo === "novas" ? `<p class="cam-dica">No jogo, abra o baú (CHEST) e ordene pelas <b>novas</b> (elas ficam no começo, com "New!"). Confira o número do CHEST acima (corrija se estiver errado) e desça a lista devagar até eu avisar que achei todas. Depois toque em <b>Revisar</b>.</p>` : ""}
-    <p class="cam-dica" ${modo === "novas" ? 'style="display:none"' : ""}>No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 33)</span></p>
+    <p class="cam-dica" ${modo === "novas" ? 'style="display:none"' : ""}>No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 34)</span></p>
     <div class="cam-acoes"><button id="lb-recomecar">Recomeçar</button><button class="principal" id="lb-revisar" disabled>Revisar e salvar</button></div>`;
   document.body.append(el);
   document.body.classList.add("sem-rolagem");

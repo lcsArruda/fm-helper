@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="pt-BR">
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <title>Forbidden Memories Helper</title>
 <link rel="apple-touch-icon" href="icone-180.png">
 <link rel="icon" type="image/png" href="icone-192.png">
@@ -27,6 +27,9 @@
 [hidden] { display: none !important; }
 html, body { background: var(--fundo); color: var(--texto); }
 body { font-family: var(--f-texto); font-size: 15px; line-height: 1.4; -webkit-tap-highlight-color: transparent; }
+/* campos de digitar com 16px: abaixo disso o celular dá zoom sozinho quando você toca para digitar */
+input, select, textarea { font-size: 16px !important; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 30; background: var(--cabecalho); }
 button { font: inherit; color: inherit; cursor: pointer; }
 button:focus-visible, input:focus-visible { outline: 2px solid var(--ouro); outline-offset: 2px; }
@@ -1714,7 +1717,7 @@ async function abrirCamera() {
       <span class="cam-legenda">Aponte o quadro para a barra preta com o nome da carta</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="cam-slots" id="cam-slots"></div>
-    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 37)</span></p>
+    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 38)</span></p>
     <label class="cam-foto secundario" id="cam-foto">📷 Ou tirar uma foto da mão<input type="file" accept="image/*" capture="environment" id="cam-arquivo" hidden></label>
     <div class="cam-acoes"><button id="cam-recomecar">Recomeçar</button><button class="principal" id="cam-usar" disabled>Usar estas cartas</button></div>`;
   document.body.append(el);
@@ -2795,7 +2798,7 @@ async function abrirLeitorBau(modo = "tudo") {
       <input id="lb-topo" type="number" inputmode="numeric" min="0" max="9999" placeholder="?" style="width:84px;font:inherit;padding:6px 8px;border-radius:8px;border:1px solid var(--borda);background:var(--superficie-2);color:var(--texto)"></label>
       <div id="lb-tot" style="font-size:14px"></div><div id="lb-ultimas" class="suave">—</div></div>
     ${modo === "novas" ? `<p class="cam-dica">No jogo, abra o baú (CHEST) e ordene pelas <b>novas</b> (elas ficam no começo, com "New!"). Confira o número do CHEST acima (corrija se estiver errado) e desça a lista devagar até eu avisar que achei todas. Depois toque em <b>Revisar</b>.</p>` : ""}
-    <p class="cam-dica" ${modo === "novas" ? 'style="display:none"' : ""}>No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 37)</span></p>
+    <p class="cam-dica" ${modo === "novas" ? 'style="display:none"' : ""}>No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 38)</span></p>
     <div class="cam-acoes"><button id="lb-recomecar">Recomeçar</button><button class="principal" id="lb-revisar" disabled>Revisar e salvar</button></div>`;
   document.body.append(el);
   document.body.classList.add("sem-rolagem");

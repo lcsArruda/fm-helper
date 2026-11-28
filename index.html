@@ -1717,7 +1717,7 @@ async function abrirCamera() {
       <span class="cam-legenda">Aponte o quadro para a barra preta com o nome da carta</span></div>
     <div class="cam-status" id="cam-status">Abrindo a câmera…</div>
     <div class="cam-slots" id="cam-slots"></div>
-    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 38)</span></p>
+    <p class="cam-dica">Passe o cursor do jogo pelas cartas da mão, uma por vez: cada nome lido entra no próximo espaço. Errou? Toque no espaço para tirar. <span style="opacity:.6">(versão 39)</span></p>
     <label class="cam-foto secundario" id="cam-foto">📷 Ou tirar uma foto da mão<input type="file" accept="image/*" capture="environment" id="cam-arquivo" hidden></label>
     <div class="cam-acoes"><button id="cam-recomecar">Recomeçar</button><button class="principal" id="cam-usar" disabled>Usar estas cartas</button></div>`;
   document.body.append(el);
@@ -1841,6 +1841,9 @@ document.addEventListener("change", (e) => {
 
 // ---------- Minhas cartas: baú, deck atual e sugestões de deck ----------
 const CHAVE_COL = "fmh-colecao-v1", TAM_DECK = 40, MAX_COPIAS = 3;
+// as 5 peças do Exódia (cabeça, braços e pernas, nº 17 a 21) só podem ter 1 cópia no deck
+const LIMITE_1 = new Set([17, 18, 19, 20, 21]);
+const maxCopias = (n) => (LIMITE_1.has(+n) ? 1 : MAX_COPIAS);
 let colecao = { bau: {}, deck: {} };   // número -> quantidade (o baú conta TODAS as cópias que você tem, inclusive as do deck)
 let col = { sub: "bau", busca: "", sug: 0, sugVista: "deck", ordem: "forca", inverter: false };
 try { Object.assign(col, JSON.parse(localStorage.getItem("fmh-col-ordem") || "{}")); } catch (e) {}
@@ -2047,7 +2050,7 @@ function otimizarDeck(base, disp, fixos) {
 }
 function dispDoBau() {
   const disp = new Map();
-  for (const [k, q] of Object.entries(colecao.bau)) { const c = CARTAS.get(+k); if (c && q > 0) disp.set(c.n, Math.min(q, MAX_COPIAS)); }
+  for (const [k, q] of Object.entries(colecao.bau)) { const c = CARTAS.get(+k); if (c && q > 0) disp.set(c.n, Math.min(q, maxCopias(c.n))); }
   return disp;
 }
 function montarSugestoes() { return melhorDeck(dispDoBau()); }
@@ -2162,7 +2165,7 @@ function planoDeFarm(lib) {
   const { RES, ATK } = tabelasForca();
   const own = dispDoBau(), atual = own.size ? sugerirDecks()[0] : null;
   // cartas farmáveis (monstros e equipamentos dados por duelistas liberados)
-  const farmaveis = LISTA.filter((c) => (monstro(c) || c.tipo === "Equipamento") && (own.get(c.n) || 0) < MAX_COPIAS && melhor(c.n, lib));
+  const farmaveis = LISTA.filter((c) => (monstro(c) || c.tipo === "Equipamento") && (own.get(c.n) || 0) < maxCopias(c.n) && melhor(c.n, lib));
   // poda (para a conta caber no celular): fica a carta forte sozinha, ou que funde (direto ou em cadeia) num monstro forte
   const T = Math.max(1200, Math.round((atual?.forca || 1500) * 0.75));
   const pool = [...own.keys(), ...farmaveis.map((c) => c.n)].filter((n, k, a) => a.indexOf(n) === k);
@@ -2175,7 +2178,7 @@ function planoDeFarm(lib) {
     for (const m of poolM) { const r = RES[c.n * 1024 + m]; if (r && ATK[r] > Math.max(c.atk, ATK[m]) && ehBom(r)) return true; }
     return false;
   });
-  const disp = new Map(own); for (const c of util) disp.set(c.n, MAX_COPIAS);
+  const disp = new Map(own); for (const c of util) disp.set(c.n, maxCopias(c.n));
   const sonho = melhorDeck(disp, own, true)[0];
   // o que farmar: cópias do deck dos sonhos além das que você já tem
   const falta = {}; for (const [n, q] of Object.entries(sonho.deck)) { const a = own.get(+n) || 0; if (q > a) falta[n] = q - a; }
@@ -2798,7 +2801,7 @@ async function abrirLeitorBau(modo = "tudo") {
       <input id="lb-topo" type="number" inputmode="numeric" min="0" max="9999" placeholder="?" style="width:84px;font:inherit;padding:6px 8px;border-radius:8px;border:1px solid var(--borda);background:var(--superficie-2);color:var(--texto)"></label>
       <div id="lb-tot" style="font-size:14px"></div><div id="lb-ultimas" class="suave">—</div></div>
     ${modo === "novas" ? `<p class="cam-dica">No jogo, abra o baú (CHEST) e ordene pelas <b>novas</b> (elas ficam no começo, com "New!"). Confira o número do CHEST acima (corrija se estiver errado) e desça a lista devagar até eu avisar que achei todas. Depois toque em <b>Revisar</b>.</p>` : ""}
-    <p class="cam-dica" ${modo === "novas" ? 'style="display:none"' : ""}>No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 38)</span></p>
+    <p class="cam-dica" ${modo === "novas" ? 'style="display:none"' : ""}>No jogo, abra o baú (CHEST) e vá descendo a lista do começo ao fim, sem pressa. Não precisa mirar: deixe a TV inteira aparecendo. No fim da lista, espere uns segundos parado. Depois toque em <b>Revisar</b> para conferir. <span style="opacity:.6">(versão 39)</span></p>
     <div class="cam-acoes"><button id="lb-recomecar">Recomeçar</button><button class="principal" id="lb-revisar" disabled>Revisar e salvar</button></div>`;
   document.body.append(el);
   document.body.classList.add("sem-rolagem");
